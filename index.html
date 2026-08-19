@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f6f3ec" />
+    <title>Groovekeeper — Vinyl collection</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css?v=20260812-3" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand"><span class="brand-mark">◉</span><span>groovekeeper</span></div>
+        <div class="sidebar-label">Your shelves</div>
+        <nav class="nav-list" aria-label="Main navigation">
+          <button class="nav-item active" data-view="collection"><span class="nav-icon">▦</span>Collection <span class="nav-count">0</span></button>
+          <button class="nav-item" data-view="identify"><span class="nav-icon">◉</span>Identify record <span class="nav-count new-count">NEW</span></button>
+          <button class="nav-item" data-view="scan"><span class="nav-icon">⌁</span>Scan spines <span class="nav-count new-count">START HERE</span></button>
+          <button class="nav-item" data-view="wishlist"><span class="nav-icon">♡</span>Wantlist <span class="nav-count muted-count">0</span></button>
+          <button class="nav-item" data-view="duplicates"><span class="nav-icon">⌘</span>Possible duplicates <span class="nav-count alert-count">0</span></button>
+        </nav>
+        <div class="sidebar-label sidebar-label-spaced">Organize</div>
+        <nav class="nav-list">
+          <button class="nav-item"><span class="nav-icon">⌁</span>Recently added</button>
+          <button class="nav-item"><span class="nav-icon">↗</span>Reports</button>
+        </nav>
+        <div class="sidebar-bottom">
+          <div class="tip-card"><div class="tip-star">✦</div><div><strong>Small habit, big payoff.</strong><p>Check Groovekeeper before you buy your next record.</p></div></div>
+          <button class="profile"><span class="avatar">JT</span><span><strong>Josh's collection</strong><small>Private collection</small></span><span class="more">•••</span></button>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar">
+          <div class="breadcrumb"><span>Collection</span><span class="slash">/</span><strong>All records</strong></div>
+          <div class="top-actions"><button class="icon-button" title="Notifications">♧<span class="notification-dot"></span></button><button class="user-avatar">JT</button></div>
+        </header>
+
+        <section class="page-heading">
+          <div><div class="eyebrow">THURSDAY, 30 JULY 2026</div><h1>Your collection<span class="heading-dot">.</span></h1><p class="subheading">A tidy home for the records you love.</p></div>
+          <div class="heading-actions"><button class="secondary-button" id="open-identify" type="button">◎ Identify record</button><button class="primary-button" id="open-add"><span>＋</span> Add record</button></div>
+        </section>
+
+        <section class="identify-panel" id="identify-panel" hidden>
+          <div class="identify-heading"><div><div class="eyebrow">SINGLE RECORD LOOKUP</div><h2>Show us what you found<span class="heading-dot">.</span></h2><p>Photograph the front cover or scan a barcode. Images stay on this device; only the resulting text or barcode is sent to Discogs for matching.</p></div><button class="text-button" id="identify-reset" type="button">Start over</button></div>
+          <div class="identify-methods" role="tablist" aria-label="Identification method"><button class="identify-method active" type="button" data-identify-mode="cover" role="tab" aria-selected="true"><span>▣</span><strong>Front cover</strong><small>Read artist and album locally</small></button><button class="identify-method" type="button" data-identify-mode="barcode" role="tab" aria-selected="false"><span>▥</span><strong>Barcode</strong><small>Fastest pressing lookup</small></button></div>
+          <div class="identify-workspace" data-identify-workspace="cover"><input id="cover-input" type="file" accept="image/*" capture="environment" hidden><button class="identify-capture" id="choose-cover" type="button"><span>▣</span><strong>Take or choose a cover photo</strong><small>Fill the frame with one front cover</small></button></div>
+          <div class="identify-workspace" data-identify-workspace="barcode" hidden><input id="barcode-input" type="file" accept="image/*" capture="environment" hidden><button class="identify-capture" id="choose-barcode" type="button"><span>▥</span><strong>Take or choose a barcode photo</strong><small>Keep the barcode sharp and level</small></button><div class="barcode-manual"><span>or enter the printed number</span><div><input id="barcode-number" inputmode="numeric" autocomplete="off" placeholder="e.g. 602557618280"><button class="secondary-button" id="lookup-barcode" type="button">Look up</button></div></div></div>
+          <div class="identify-progress" id="identify-progress" hidden></div>
+          <div class="identify-preview" id="identify-preview" hidden></div>
+          <div class="identify-results" id="identify-results" hidden><div class="section-header"><div><div class="eyebrow">POSSIBLE PRESSINGS</div><h2>Choose your copy <span class="heading-count" id="identify-result-count">0</span></h2></div></div><p class="review-hint" id="identify-summary"></p><div class="identify-release-list" id="identify-release-list"></div><button class="primary-button" id="add-identified" type="button">Add selected pressing</button></div>
+        </section>
+
+        <section class="scan-panel" id="scan-panel" hidden>
+          <div class="scan-copy"><div class="eyebrow">QUICK CATALOGUE</div><h2>Turn a shelf into a shortlist<span class="heading-dot">.</span></h2><p>Take one or more photos of your record spines. Groovekeeper reads the text, then helps you confirm the right release before adding anything.</p><div class="scan-steps"><span class="step-active">1 <b>Upload photos</b></span><span>→</span><span>2 <b>Review matches</b></span><span>→</span><span>3 <b>Add to shelf</b></span></div></div>
+          <div class="dropzone" id="dropzone"><input id="spine-input" type="file" accept="image/*" capture="environment" multiple hidden /><div class="upload-icon">⌁</div><h3>Drop spine photos here</h3><p>or <button class="inline-link" id="choose-photos" type="button">choose from your camera roll</button></p><small>JPG, PNG or HEIC · up to 20 photos</small></div>
+          <div class="photo-queue" id="photo-queue" hidden><div class="photo-queue-header"><span id="photo-count">0 photos queued</span><button class="secondary-button" id="add-more-photos" type="button">＋ Add more photos</button></div><div class="photo-strip" id="photo-strip"></div></div>
+          <div class="scan-history" id="scan-history"><div><strong>Recent scans</strong><span>Resume a prepared or interrupted shelf scan.</span></div><div id="scan-history-list"><span class="muted">No saved scans yet.</span></div></div>
+          <div class="auto-scan" id="auto-scan" hidden><div class="crop-heading"><div><div class="eyebrow">STEP 2 · AUTOMATIC SHELF SCAN</div><h3>Ready to inspect the shelf in sections</h3><p>Groovekeeper automatically overlaps, rotates and enlarges narrow sections so the local model can read a few spines at a time.</p></div><span id="crop-photo-label">0 panels prepared</span></div><div class="detected-crops" id="detected-crops"></div><div class="crop-toolbar"><span id="crop-instruction">The scan can take a few minutes on the first run.</span><div class="scan-buttons"><button class="primary-button" id="run-vision" type="button" disabled>◈ Find album titles locally</button><button class="secondary-button" id="run-scan" type="button" disabled><span>✦</span> OCR fallback</button></div></div><div class="vision-status" id="vision-status" hidden></div></div>
+          <div class="scan-results" id="scan-results" hidden><div class="section-header"><div><div class="eyebrow">REVIEW BEFORE ADDING</div><h2>Check what we read <span class="heading-count" id="match-count">0</span></h2></div><button class="text-button" id="scan-again">Start over</button></div><p class="review-hint">Groovekeeper automatically searches Discogs for each readable title. Check the suggested pressing, edit the text and retry when needed.</p><div id="match-list"></div><button class="primary-button" id="add-matches" type="button">Add selected records</button></div>
+        </section>
+
+        <section class="stats-grid" aria-label="Collection summary">
+          <div class="stat-card"><div class="stat-top"><span class="stat-label">TOTAL RECORDS</span><span class="stat-symbol">▦</span></div><strong class="stat-value">0</strong><span class="stat-note muted">Add your first record below</span></div>
+          <div class="stat-card"><div class="stat-top"><span class="stat-label">EST. COLLECTION VALUE</span><span class="stat-symbol">$</span></div><strong class="stat-value">$0</strong><span class="stat-note muted">Value appears as you add records</span></div>
+          <div class="stat-card warm"><div class="stat-top"><span class="stat-label">DON'T BUY IT AGAIN</span><span class="stat-symbol">⌘</span></div><strong class="stat-value">0 <small>flags</small></strong><span class="stat-note muted">No duplicates yet</span></div>
+        </section>
+
+        <section class="content-section" id="collection-panel">
+          <div class="buy-check"><div><div class="eyebrow">AT THE RECORD SHOP?</div><strong>Check before you buy</strong></div><label><span>⌕</span><input id="buy-check-search" type="search" placeholder="Artist, album or catalogue number"></label><div id="buy-check-result">Type a record name to check your collection.</div></div>
+          <div class="section-header"><div><h2>All records <span class="heading-count">0</span></h2></div><div class="view-actions collection-tools"><input id="discogs-import" type="file" accept=".csv,text/csv" hidden><button class="filter-button" id="import-discogs" type="button">⇧ Import Discogs</button><button class="filter-button" id="export-csv" type="button">↓ CSV</button><button class="filter-button" id="export-json" type="button">↓ JSON</button><button class="filter-button" id="filter-button">☷ <span>Filters</span><b id="filter-count"></b></button><div class="segmented"><button class="segment active" data-layout="grid">⊞</button><button class="segment" data-layout="list">☰</button></div></div></div>
+          <div class="toolbar"><label class="search-box"><span>⌕</span><input id="search" type="search" placeholder="Search by artist, album, catalogue no..." /></label><select id="sort" aria-label="Sort records"><option value="recent">Recently added</option><option value="artist">Artist A–Z</option><option value="value">Highest value</option><option value="year">Release year</option></select></div>
+          <div class="filter-row" id="filter-row"><button class="filter-chip active" data-filter="all">All <span>0</span></button><button class="filter-chip" data-filter="near-mint">Near mint <span>0</span></button><button class="filter-chip" data-filter="jazz">Jazz <span>0</span></button><button class="filter-chip" data-filter="duplicates">Needs checking <span>0</span></button></div>
+          <div class="record-grid" id="record-grid"></div>
+          <div class="empty-state" id="empty-state" hidden><div>◌</div><h3>Nothing in this groove</h3><p>Try a different search or add a new record.</p></div>
+          <div class="load-more"><button class="text-button">Your collection is empty <span>Scan your first shelf →</span></button></div>
+        </section>
+
+        <section class="content-section duplicate-panel" id="duplicate-panel" hidden>
+          <div class="section-header"><div><div class="eyebrow">COLLECTION CLEANUP</div><h2>Possible duplicates <span class="heading-count" id="duplicate-group-count">0</span></h2></div></div>
+          <p class="duplicate-intro">Choose the copy you want to keep. Groovekeeper will only remove the other copies after you confirm.</p>
+          <div class="duplicate-groups" id="duplicate-groups"></div>
+        </section>
+      </main>
+    </div>
+
+    <div class="modal-backdrop" id="modal-backdrop" hidden>
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <button class="close-modal" id="close-modal" aria-label="Close">×</button>
+        <div class="eyebrow">ADD TO YOUR SHELF</div><h2 id="modal-title">What did you find?</h2><p class="modal-intro">Start with the artist and title. We’ll help you find the exact pressing.</p>
+        <form id="add-form"><label>Artist<input name="artist" required placeholder="e.g. Joni Mitchell" /></label><label>Album title<input name="title" required placeholder="e.g. Blue" /></label><div class="form-row"><label>Format<select name="format"><option>LP / 12”</option><option>7” single</option><option>10”</option><option>Box set</option></select></label><label>Condition<select name="condition"><option>Near mint</option><option>Very good plus</option><option>Very good</option><option>Good</option></select></label></div><button class="lookup-button" type="button" id="lookup-button">✦ Find exact pressings</button><div class="lookup-result" id="lookup-result" hidden></div><button class="primary-button full-width" type="submit">Add to collection</button></form>
+      </section>
+    </div>
+    <div class="modal-backdrop" id="pressing-backdrop" hidden>
+      <section class="modal pressing-modal" role="dialog" aria-modal="true" aria-labelledby="pressing-modal-title">
+        <button class="close-modal" id="close-pressing" aria-label="Close pressing search">×</button>
+        <div class="eyebrow">IDENTIFY YOUR COPY</div>
+        <h2 id="pressing-modal-title">Find the exact pressing</h2>
+        <p class="modal-intro" id="pressing-intro">Compare the country, label and catalogue number printed on your record.</p>
+        <div class="pressing-status" id="pressing-status"></div>
+        <div class="pressing-results" id="pressing-results"></div>
+        <p class="discogs-notice">This application uses Discogs’ API but is not affiliated with, sponsored or endorsed by Discogs. “Discogs” is a trademark of Zink Media, LLC.</p>
+      </section>
+    </div>
+    <div class="modal-backdrop" id="edit-backdrop" hidden>
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-title"><button class="close-modal" id="close-edit" aria-label="Close">×</button><div class="eyebrow">EDIT COLLECTION RECORD</div><h2 id="edit-title">Update record</h2><form id="edit-form"><input name="id" type="hidden"><label>Artist<input name="artist" required></label><label>Album title<input name="title" required></label><div class="form-row"><label>Year<input name="year"></label><label>Condition<select name="condition"><option>Not graded</option><option>Near mint</option><option>Very good plus</option><option>Very good</option><option>Good</option></select></label></div><label>Notes<input name="meta"></label><button class="primary-button full-width" type="submit">Save changes</button><button class="danger-button full-width" id="delete-record" type="button">Delete record</button></form></section>
+    </div>
+    <div class="toast" id="toast">Record added to your collection <span>✓</span></div>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="vendor/zxing-browser.min.js"></script>
+    <script src="app.js?v=20260812-3"></script>
+  </body>
+</html>

@@ -1,0 +1,10 @@
+.env
+.venv-vision/
+__pycache__/
+*.pyc
+.DS_Store
+groovekeeper.sqlite3
+groovekeeper.sqlite3-shm
+groovekeeper.sqlite3-wal
+groovekeeper-backup.sqlite3
+fixtures/

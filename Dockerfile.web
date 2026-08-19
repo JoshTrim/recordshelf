@@ -1,0 +1,10 @@
+FROM python:3.13-alpine
+
+WORKDIR /app
+
+COPY index.html app.js styles.css ./
+COPY vendor ./vendor
+
+EXPOSE 3002
+
+CMD ["python3", "-m", "http.server", "3002", "--bind", "0.0.0.0"]

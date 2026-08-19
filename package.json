@@ -1,0 +1,7 @@
+{
+  "name": "groovekeeper-local",
+  "private": true,
+  "scripts": {
+    "start": "./start-local.sh"
+  }
+}

@@ -1,0 +1,65 @@
+name: groovekeeper
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: groovekeeper-web
+    restart: unless-stopped
+    ports:
+      - "${GROOVEKEEPER_WEB_PORT:-3002}:3002"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: groovekeeper-api
+    restart: unless-stopped
+    environment:
+      GROOVEKEEPER_VISION_HOST: 0.0.0.0
+      GROOVEKEEPER_VISION_PORT: 8765
+      GROOVEKEEPER_VISION_PROVIDER: ollama
+      GROOVEKEEPER_OLLAMA_URL: http://ollama:11434
+      GROOVEKEEPER_OLLAMA_MODEL: ${GROOVEKEEPER_OLLAMA_MODEL:-qwen2.5vl:3b}
+      GROOVEKEEPER_DATABASE: /data/groovekeeper.sqlite3
+      GROOVEKEEPER_DISCOGS_TOKEN: ${GROOVEKEEPER_DISCOGS_TOKEN:-}
+      GROOVEKEEPER_USER_AGENT: ${GROOVEKEEPER_USER_AGENT:-Groovekeeper/1.0 +self-hosted}
+    ports:
+      - "${GROOVEKEEPER_API_PORT:-8765}:8765"
+    volumes:
+      - groovekeeper_data:/data
+    depends_on:
+      ollama-pull:
+        condition: service_completed_successfully
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: groovekeeper-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: groovekeeper-model-setup
+    restart: "no"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["ollama pull ${GROOVEKEEPER_OLLAMA_MODEL:-qwen2.5vl:3b}"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+volumes:
+  groovekeeper_data:
+  ollama_models:
