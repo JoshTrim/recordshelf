@@ -1,4 +1,4 @@
-# Groovekeeper
+# RecordShelf
 
 Local-first vinyl collection manager with shelf-photo recognition, cover and barcode identification, Discogs pressing lookup, pricing, duplicate resolution, and a persistent SQLite collection.
 

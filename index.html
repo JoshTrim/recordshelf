@@ -3,17 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f6f3ec" />
-    <title>Groovekeeper — Vinyl collection</title>
+    <meta name="theme-color" content="#080607" />
+    <title>RecordShelf — Vinyl collection</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20260812-3" />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css?v=20260820-1" />
   </head>
   <body>
     <div class="app-shell">
       <aside class="sidebar">
-        <div class="brand"><span class="brand-mark">◉</span><span>groovekeeper</span></div>
+        <div class="brand"><span class="brand-mark" aria-hidden="true">◉</span><span>RECORD<span>SHELF</span></span></div>
         <div class="sidebar-label">Your shelves</div>
         <nav class="nav-list" aria-label="Main navigation">
           <button class="nav-item active" data-view="collection"><span class="nav-icon">▦</span>Collection <span class="nav-count">0</span></button>
@@ -28,7 +28,7 @@
           <button class="nav-item"><span class="nav-icon">↗</span>Reports</button>
         </nav>
         <div class="sidebar-bottom">
-          <div class="tip-card"><div class="tip-star">✦</div><div><strong>Small habit, big payoff.</strong><p>Check Groovekeeper before you buy your next record.</p></div></div>
+          <div class="tip-card"><div class="tip-star">◆</div><div><strong>LOCAL COLLECTION</strong><p>Check your shelf before buying another copy.</p></div></div>
           <button class="profile"><span class="avatar">JT</span><span><strong>Josh's collection</strong><small>Private collection</small></span><span class="more">•••</span></button>
         </div>
       </aside>
@@ -40,7 +40,7 @@
         </header>
 
         <section class="page-heading">
-          <div><div class="eyebrow">THURSDAY, 30 JULY 2026</div><h1>Your collection<span class="heading-dot">.</span></h1><p class="subheading">A tidy home for the records you love.</p></div>
+          <div><div class="eyebrow">PRIVATE VINYL CATALOGUE</div><h1>Your collection<span class="heading-dot">_</span></h1><p class="subheading">Browse, identify and manage your records.</p></div>
           <div class="heading-actions"><button class="secondary-button" id="open-identify" type="button">◎ Identify record</button><button class="primary-button" id="open-add"><span>＋</span> Add record</button></div>
         </section>
 
@@ -55,12 +55,12 @@
         </section>
 
         <section class="scan-panel" id="scan-panel" hidden>
-          <div class="scan-copy"><div class="eyebrow">QUICK CATALOGUE</div><h2>Turn a shelf into a shortlist<span class="heading-dot">.</span></h2><p>Take one or more photos of your record spines. Groovekeeper reads the text, then helps you confirm the right release before adding anything.</p><div class="scan-steps"><span class="step-active">1 <b>Upload photos</b></span><span>→</span><span>2 <b>Review matches</b></span><span>→</span><span>3 <b>Add to shelf</b></span></div></div>
+          <div class="scan-copy"><div class="eyebrow">QUICK CATALOGUE</div><h2>Turn a shelf into a shortlist<span class="heading-dot">.</span></h2><p>Take one or more photos of your record spines. RecordShelf reads the text, then helps you confirm the right release before adding anything.</p><div class="scan-steps"><span class="step-active">1 <b>Upload photos</b></span><span>→</span><span>2 <b>Review matches</b></span><span>→</span><span>3 <b>Add to shelf</b></span></div></div>
           <div class="dropzone" id="dropzone"><input id="spine-input" type="file" accept="image/*" capture="environment" multiple hidden /><div class="upload-icon">⌁</div><h3>Drop spine photos here</h3><p>or <button class="inline-link" id="choose-photos" type="button">choose from your camera roll</button></p><small>JPG, PNG or HEIC · up to 20 photos</small></div>
           <div class="photo-queue" id="photo-queue" hidden><div class="photo-queue-header"><span id="photo-count">0 photos queued</span><button class="secondary-button" id="add-more-photos" type="button">＋ Add more photos</button></div><div class="photo-strip" id="photo-strip"></div></div>
           <div class="scan-history" id="scan-history"><div><strong>Recent scans</strong><span>Resume a prepared or interrupted shelf scan.</span></div><div id="scan-history-list"><span class="muted">No saved scans yet.</span></div></div>
-          <div class="auto-scan" id="auto-scan" hidden><div class="crop-heading"><div><div class="eyebrow">STEP 2 · AUTOMATIC SHELF SCAN</div><h3>Ready to inspect the shelf in sections</h3><p>Groovekeeper automatically overlaps, rotates and enlarges narrow sections so the local model can read a few spines at a time.</p></div><span id="crop-photo-label">0 panels prepared</span></div><div class="detected-crops" id="detected-crops"></div><div class="crop-toolbar"><span id="crop-instruction">The scan can take a few minutes on the first run.</span><div class="scan-buttons"><button class="primary-button" id="run-vision" type="button" disabled>◈ Find album titles locally</button><button class="secondary-button" id="run-scan" type="button" disabled><span>✦</span> OCR fallback</button></div></div><div class="vision-status" id="vision-status" hidden></div></div>
-          <div class="scan-results" id="scan-results" hidden><div class="section-header"><div><div class="eyebrow">REVIEW BEFORE ADDING</div><h2>Check what we read <span class="heading-count" id="match-count">0</span></h2></div><button class="text-button" id="scan-again">Start over</button></div><p class="review-hint">Groovekeeper automatically searches Discogs for each readable title. Check the suggested pressing, edit the text and retry when needed.</p><div id="match-list"></div><button class="primary-button" id="add-matches" type="button">Add selected records</button></div>
+          <div class="auto-scan" id="auto-scan" hidden><div class="crop-heading"><div><div class="eyebrow">STEP 2 · AUTOMATIC SHELF SCAN</div><h3>Ready to inspect the shelf in sections</h3><p>RecordShelf automatically overlaps, rotates and enlarges narrow sections so the local model can read a few spines at a time.</p></div><span id="crop-photo-label">0 panels prepared</span></div><div class="detected-crops" id="detected-crops"></div><div class="crop-toolbar"><span id="crop-instruction">The scan can take a few minutes on the first run.</span><div class="scan-buttons"><button class="primary-button" id="run-vision" type="button" disabled>◈ Find album titles locally</button><button class="secondary-button" id="run-scan" type="button" disabled><span>✦</span> OCR fallback</button></div></div><div class="vision-status" id="vision-status" hidden></div></div>
+          <div class="scan-results" id="scan-results" hidden><div class="section-header"><div><div class="eyebrow">REVIEW BEFORE ADDING</div><h2>Check what we read <span class="heading-count" id="match-count">0</span></h2></div><button class="text-button" id="scan-again">Start over</button></div><p class="review-hint">RecordShelf automatically searches Discogs for each readable title. Check the suggested pressing, edit the text and retry when needed.</p><div id="match-list"></div><button class="primary-button" id="add-matches" type="button">Add selected records</button></div>
         </section>
 
         <section class="stats-grid" aria-label="Collection summary">
@@ -81,7 +81,7 @@
 
         <section class="content-section duplicate-panel" id="duplicate-panel" hidden>
           <div class="section-header"><div><div class="eyebrow">COLLECTION CLEANUP</div><h2>Possible duplicates <span class="heading-count" id="duplicate-group-count">0</span></h2></div></div>
-          <p class="duplicate-intro">Choose the copy you want to keep. Groovekeeper will only remove the other copies after you confirm.</p>
+          <p class="duplicate-intro">Choose the copy you want to keep. RecordShelf will only remove the other copies after you confirm.</p>
           <div class="duplicate-groups" id="duplicate-groups"></div>
         </section>
       </main>
@@ -111,6 +111,7 @@
     <div class="toast" id="toast">Record added to your collection <span>✓</span></div>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="vendor/zxing-browser.min.js"></script>
-    <script src="app.js?v=20260812-3"></script>
+    <div class="crt-overlay" aria-hidden="true"></div>
+    <script src="app.js?v=20260820-1"></script>
   </body>
 </html>
