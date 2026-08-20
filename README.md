@@ -33,7 +33,7 @@ The first start downloads the approximately 3.2 GB `qwen2.5vl:3b` vision model. 
 docker compose logs -f ollama-pull
 ```
 
-Open `http://YOUR-SERVER-IP:3002`. The API listens on port `8765`; both ports must be reachable by devices on your LAN.
+Open `http://YOUR-SERVER-IP:PORT`, using the `GROOVEKEEPER_WEB_PORT` value from `.env`. The web container proxies API and vision requests internally, so only that one port needs to be reachable on your LAN.
 
 ### NVIDIA GPU
 
@@ -71,11 +71,8 @@ docker compose up -d --build
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `GROOVEKEEPER_WEB_PORT` | `3002` | Browser UI port |
-| `GROOVEKEEPER_API_PORT` | `8765` | Local API port |
 | `GROOVEKEEPER_OLLAMA_MODEL` | `qwen2.5vl:3b` | Ollama vision model |
 | `GROOVEKEEPER_DISCOGS_TOKEN` | empty | Discogs access token |
-
-If you change the API port, update `serviceBase()` in `app.js` or keep the browser-facing port at `8765`.
 
 ## Mac development
 

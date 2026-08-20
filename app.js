@@ -16,7 +16,7 @@ const empty = document.querySelector('#empty-state');
 const search = document.querySelector('#search');
 const sort = document.querySelector('#sort');
 let activeFilter = 'all';
-const serviceBase=()=>`http://${location.hostname||'127.0.0.1'}:8765`;
+const serviceBase=()=>String(globalThis.RECORDSHELF_API_BASE||`http://${location.hostname||'127.0.0.1'}:8765`).replace(/\/$/,'');
 let collectionSync=Promise.resolve();
 
 function escapeHtml(value){return String(value??'').replace(/[&<>"]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[char]))}
@@ -109,10 +109,10 @@ function showIdentifyPreview(file,label){if(identifyPreviewUrl)URL.revokeObjectU
 function resetIdentify(){if(identifyPreviewUrl)URL.revokeObjectURL(identifyPreviewUrl);identifyPreviewUrl='';identifiedReleases=[];coverInput.value='';barcodeInput.value='';document.querySelector('#barcode-number').value='';identifyPreview.hidden=true;identifyPreview.innerHTML='';identifyProgress.hidden=true;identifyResults.hidden=true;identifyReleaseList.innerHTML=''}
 document.querySelector('#identify-reset').addEventListener('click',resetIdentify);
 async function prepareIdentificationImage(file){const image=await loadImage(file);const canvas=document.createElement('canvas');const scale=Math.min(1,1400/Math.max(image.width,image.height));canvas.width=Math.round(image.width*scale);canvas.height=Math.round(image.height*scale);const context=canvas.getContext('2d');context.imageSmoothingEnabled=true;context.imageSmoothingQuality='high';context.drawImage(image,0,0,canvas.width,canvas.height);return canvas.toDataURL('image/jpeg',.92)}
-async function fetchDiscogsReleases(params){const host=location.hostname||'127.0.0.1';const response=await fetch(`http://${host}:8765/discogs/search?${new URLSearchParams(params)}`,{signal:AbortSignal.timeout(25000)});const result=await response.json();if(!response.ok)throw new Error(result.setupRequired?'Discogs needs a token in the local .env file.':result.error||`Discogs returned ${response.status}`);return result.releases||[]}
+async function fetchDiscogsReleases(params){const response=await fetch(`${serviceBase()}/discogs/search?${new URLSearchParams(params)}`,{signal:AbortSignal.timeout(25000)});const result=await response.json();if(!response.ok)throw new Error(result.setupRequired?'Discogs needs a token in the local .env file.':result.error||`Discogs returned ${response.status}`);return result.releases||[]}
 function splitDiscogsTitle(value){const parts=String(value||'').split(/\s+-\s+/);return parts.length>1?{artist:parts.shift(),title:parts.join(' - ')}:{artist:'',title:value||''}}
 function renderIdentifiedReleases(releases,summary){identifiedReleases=releases;identifyResults.hidden=false;document.querySelector('#identify-result-count').textContent=releases.length;document.querySelector('#identify-summary').textContent=summary;identifyReleaseList.innerHTML=releases.length?releases.map((release,index)=>{const names=splitDiscogsTitle(release.title);const duplicate=records.some(record=>String(record.discogsReleaseId||'')===String(release.id)||recordKey(record.artist,record.title)===recordKey(names.artist,names.title));return `<label class="identify-release ${duplicate?'possible-existing':''}"><input type="radio" name="identified-release" value="${release.id}" ${index===0?'checked':''}><span class="identify-release-cover">${release.coverUrl?`<img src="${escapeHtml(release.coverUrl)}" alt="" loading="lazy">`:'◎'}</span><span class="identify-release-info"><strong>${escapeHtml(release.title)}</strong><span>${escapeHtml(release.year||'Unknown year')} · ${escapeHtml(release.country||'Unknown country')}</span><small>${escapeHtml(release.label||'Unknown label')} · ${escapeHtml(release.catno||'No catalogue number')} · ${escapeHtml((release.format||[]).join(' · ')||'Vinyl')}</small>${duplicate?'<b>Already in your collection</b>':''}</span><span class="identify-keep">Choose</span></label>`}).join(''):'<div class="no-results">No vinyl pressings matched. Try the other identification method or enter the record manually.</div>';setIdentifyProgress(releases.length?`Found ${releases.length} possible vinyl pressing${releases.length===1?'':'s'}.`:'No matching vinyl pressing found.',releases.length?'success':'error');identifyResults.scrollIntoView({behavior:'smooth',block:'start'})}
-async function identifyCover(file){showIdentifyPreview(file,'Front cover photo');identifyResults.hidden=true;setIdentifyProgress('Reading the front cover with the local vision model…');try{const image=await prepareIdentificationImage(file);const prompt='This is the FRONT COVER of one vinyl record. Identify the most likely artist and album title using visible lettering and, when distinctive, the cover artwork. Return ONLY a valid JSON array with one object: [{"artist":"...","title":"...","confidence":0.0,"evidence":"visible words or short visual reason"}]. Use an empty string when unknown. Lower confidence when relying on artwork, and return [] rather than inventing a record when uncertain.';const host=location.hostname||'127.0.0.1';const response=await fetch(`http://${host}:8765/analyze`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image,prompt}),signal:AbortSignal.timeout(240000)});if(!response.ok)throw new Error((await response.json()).error||`Vision returned ${response.status}`);const result=await response.json();const read=(result.records||[])[0];if(!read||(!read.artist&&!read.title))throw new Error('The cover was not clear or distinctive enough to identify.');setIdentifyProgress(`Identified “${[read.artist,read.title].filter(Boolean).join(' — ')}”. Searching Discogs…`);const releases=await fetchDiscogsReleases({artist:read.artist||'',title:read.title||''});renderIdentifiedReleases(releases,`Local vision suggests ${titleCaseWords(read.artist)||'an unknown artist'} — ${titleCaseWords(read.title)||'an unknown title'} (${Math.round((Number(read.confidence)||0)*100)}% confidence). Confirm the pressing details below.`)}catch(error){setIdentifyProgress(`Cover identification failed: ${error.name==='TimeoutError'?'the local model timed out':error.message}`,'error')}}
+async function identifyCover(file){showIdentifyPreview(file,'Front cover photo');identifyResults.hidden=true;setIdentifyProgress('Reading the front cover with the local vision model…');try{const image=await prepareIdentificationImage(file);const prompt='This is the FRONT COVER of one vinyl record. Identify the most likely artist and album title using visible lettering and, when distinctive, the cover artwork. Return ONLY a valid JSON array with one object: [{"artist":"...","title":"...","confidence":0.0,"evidence":"visible words or short visual reason"}]. Use an empty string when unknown. Lower confidence when relying on artwork, and return [] rather than inventing a record when uncertain.';const response=await fetch(`${serviceBase()}/analyze`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image,prompt}),signal:AbortSignal.timeout(240000)});if(!response.ok)throw new Error((await response.json()).error||`Vision returned ${response.status}`);const result=await response.json();const read=(result.records||[])[0];if(!read||(!read.artist&&!read.title))throw new Error('The cover was not clear or distinctive enough to identify.');setIdentifyProgress(`Identified “${[read.artist,read.title].filter(Boolean).join(' — ')}”. Searching Discogs…`);const releases=await fetchDiscogsReleases({artist:read.artist||'',title:read.title||''});renderIdentifiedReleases(releases,`Local vision suggests ${titleCaseWords(read.artist)||'an unknown artist'} — ${titleCaseWords(read.title)||'an unknown title'} (${Math.round((Number(read.confidence)||0)*100)}% confidence). Confirm the pressing details below.`)}catch(error){setIdentifyProgress(`Cover identification failed: ${error.name==='TimeoutError'?'the local model timed out':error.message}`,'error')}}
 async function decodeBarcode(file){
   const image=await loadImage(file);
   if('BarcodeDetector' in window){try{const detector=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e']});const detected=await detector.detect(image);if(detected[0]?.rawValue)return detected[0].rawValue}catch{}}
@@ -205,9 +205,8 @@ async function openPressingSearch(record){
   document.querySelector('#pressing-intro').textContent=`Compare ${record.artist||'the artist'} pressings using the country, label and catalogue number printed on your copy.`;
   pressingStatus.className='pressing-status';pressingStatus.textContent='Searching Discogs for vinyl releases…';pressingResults.innerHTML='';
   try{
-    const host=location.hostname||'127.0.0.1';
     const params=new URLSearchParams({artist:record.artist||'',title:record.title||''});
-    const response=await fetch(`http://${host}:8765/discogs/search?${params}`,{signal:AbortSignal.timeout(25000)});
+    const response=await fetch(`${serviceBase()}/discogs/search?${params}`,{signal:AbortSignal.timeout(25000)});
     const result=await response.json();
     if(!response.ok){
       if(result.setupRequired){pressingStatus.className='pressing-status setup';pressingStatus.innerHTML='Discogs needs a personal access token. <a href="https://www.discogs.com/settings/developers" target="_blank" rel="noopener">Create one in Discogs</a>, copy <code>.env.example</code> to <code>.env</code>, add the token, then restart <code>npm run start</code>.';return}
@@ -245,8 +244,7 @@ function queueDiscogsPrice(record){
   record.discogsPriceRefreshQueued=true;
   discogsPriceQueue=discogsPriceQueue.then(async()=>{
     try{
-      const host=location.hostname||'127.0.0.1';
-      const response=await fetch(`http://${host}:8765/discogs/price/${record.discogsReleaseId}`,{signal:AbortSignal.timeout(25000)});
+      const response=await fetch(`${serviceBase()}/discogs/price/${record.discogsReleaseId}`,{signal:AbortSignal.timeout(25000)});
       if(response.ok){const result=await response.json();if(result.prices){record.discogsPrices=result.prices;const price=priceForCondition(result.prices,record.condition);record.value=price?.value??null;record.priceCurrency=price?.currency||'';record.discogsPriceFetchedAt=Date.now()}}
     }catch{}
     delete record.discogsPriceRefreshQueued;saveRecords();render();
@@ -258,8 +256,7 @@ pressingResults.addEventListener('click',async event=>{
   button.disabled=true;button.textContent='Saving pressing…';
   let price=null;
   try{
-    const host=location.hostname||'127.0.0.1';
-    const response=await fetch(`http://${host}:8765/discogs/price/${release.id}`,{signal:AbortSignal.timeout(25000)});
+    const response=await fetch(`${serviceBase()}/discogs/price/${release.id}`,{signal:AbortSignal.timeout(25000)});
     if(response.ok){const result=await response.json();activePressingRecord.discogsPrices=result.prices;price=priceForCondition(result.prices,activePressingRecord.condition)}
   }catch{}
   records.filter(record=>record!==activePressingRecord&&String(record.discogsReleaseId)===String(release.id)).forEach(record=>{record.flag=true;activePressingRecord.flag=true});
@@ -405,7 +402,7 @@ async function searchScanRow(row){
   if(scanDiscogsUnavailable){status.textContent=scanDiscogsUnavailable;button.textContent='Retry';return}
   button.disabled=true;button.textContent='Searching…';status.textContent='Searching Discogs…';select.hidden=true;
   try{
-    const host=location.hostname||'127.0.0.1';const params=new URLSearchParams({artist,title});const response=await fetch(`http://${host}:8765/discogs/search?${params}`,{signal:AbortSignal.timeout(25000)});const result=await response.json();
+    const params=new URLSearchParams({artist,title});const response=await fetch(`${serviceBase()}/discogs/search?${params}`,{signal:AbortSignal.timeout(25000)});const result=await response.json();
     if(!response.ok){if(result.setupRequired){scanDiscogsUnavailable='Add your Discogs token, then restart the local server.';throw new Error(scanDiscogsUnavailable)}throw new Error(result.error||`Search returned ${response.status}`)}
     const candidates=(result.releases||[]).slice(0,6);if(!candidates.length){status.textContent='No vinyl release found. Edit the text and retry.';return}
     scanReleaseMatches.set(row.dataset.scanId,{candidates,selected:candidates[0]});
@@ -428,12 +425,11 @@ document.querySelector('#run-vision').addEventListener('click',async()=>{
   renderPreparedPanels();
   status.hidden=false;
   status.className='vision-status';
-  const host=location.hostname||'127.0.0.1';
   let records=[...activeScanRecords];
   const raw=[];
   const failures=[];
   try{
-    const health=await fetch(`http://${host}:8765/`,{signal:AbortSignal.timeout(5000)});
+    const health=await fetch(`${serviceBase()}/health`,{signal:AbortSignal.timeout(5000)});
     if(!health.ok)throw new Error('The local vision service did not answer.');
     for(let i=activeScanNextPanel;i<cropData.length;i++){
       const crop=cropData[i];
@@ -443,7 +439,7 @@ document.querySelector('#run-vision').addEventListener('click',async()=>{
       status.textContent=`${progress}…\nFound ${dedupeVisionRecords(records).length} possible records so far. Keep this tab open.`;
       button.textContent=`◌ ${progress}…`;
       try{
-        const response=await fetch(`http://${host}:8765/analyze`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image:cropData[i].dataUrl,prompt}),signal:AbortSignal.timeout(240000)});
+        const response=await fetch(`${serviceBase()}/analyze`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image:cropData[i].dataUrl,prompt}),signal:AbortSignal.timeout(240000)});
         if(!response.ok){const detail=await response.text();throw new Error(`${response.status}: ${detail}`)}
         const result=await response.json();
         records.push(...(result.records||[]));
