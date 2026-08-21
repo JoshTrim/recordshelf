@@ -108,7 +108,7 @@ function setIdentifyProgress(message,type=''){identifyProgress.hidden=false;iden
 function showIdentifyPreview(file,label){if(identifyPreviewUrl)URL.revokeObjectURL(identifyPreviewUrl);identifyPreviewUrl=URL.createObjectURL(file);identifyPreview.hidden=false;identifyPreview.innerHTML=`<img src="${identifyPreviewUrl}" alt="${escapeHtml(label)}"><span>${escapeHtml(label)}</span>`}
 function resetIdentify(){if(identifyPreviewUrl)URL.revokeObjectURL(identifyPreviewUrl);identifyPreviewUrl='';identifiedReleases=[];coverInput.value='';barcodeInput.value='';document.querySelector('#barcode-number').value='';identifyPreview.hidden=true;identifyPreview.innerHTML='';identifyProgress.hidden=true;identifyResults.hidden=true;identifyReleaseList.innerHTML=''}
 document.querySelector('#identify-reset').addEventListener('click',resetIdentify);
-async function prepareIdentificationImage(file){const image=await loadImage(file);const canvas=document.createElement('canvas');const scale=Math.min(1,1400/Math.max(image.width,image.height));canvas.width=Math.round(image.width*scale);canvas.height=Math.round(image.height*scale);const context=canvas.getContext('2d');context.imageSmoothingEnabled=true;context.imageSmoothingQuality='high';context.drawImage(image,0,0,canvas.width,canvas.height);return canvas.toDataURL('image/jpeg',.92)}
+async function prepareIdentificationImage(file){const image=await loadImage(file);const canvas=document.createElement('canvas');const scale=Math.min(1,1024/Math.max(image.width,image.height));canvas.width=Math.round(image.width*scale);canvas.height=Math.round(image.height*scale);const context=canvas.getContext('2d');context.imageSmoothingEnabled=true;context.imageSmoothingQuality='high';context.drawImage(image,0,0,canvas.width,canvas.height);return canvas.toDataURL('image/jpeg',.86)}
 async function fetchDiscogsReleases(params){const response=await fetch(`${serviceBase()}/discogs/search?${new URLSearchParams(params)}`,{signal:AbortSignal.timeout(25000)});const result=await response.json();if(!response.ok)throw new Error(result.setupRequired?'Discogs needs a token in the local .env file.':result.error||`Discogs returned ${response.status}`);return result.releases||[]}
 function splitDiscogsTitle(value){const parts=String(value||'').split(/\s+-\s+/);return parts.length>1?{artist:parts.shift(),title:parts.join(' - ')}:{artist:'',title:value||''}}
 function renderIdentifiedReleases(releases,summary){identifiedReleases=releases;identifyResults.hidden=false;document.querySelector('#identify-result-count').textContent=releases.length;document.querySelector('#identify-summary').textContent=summary;identifyReleaseList.innerHTML=releases.length?releases.map((release,index)=>{const names=splitDiscogsTitle(release.title);const duplicate=records.some(record=>String(record.discogsReleaseId||'')===String(release.id)||recordKey(record.artist,record.title)===recordKey(names.artist,names.title));return `<label class="identify-release ${duplicate?'possible-existing':''}"><input type="radio" name="identified-release" value="${release.id}" ${index===0?'checked':''}><span class="identify-release-cover">${release.coverUrl?`<img src="${escapeHtml(release.coverUrl)}" alt="" loading="lazy">`:'◎'}</span><span class="identify-release-info"><strong>${escapeHtml(release.title)}</strong><span>${escapeHtml(release.year||'Unknown year')} · ${escapeHtml(release.country||'Unknown country')}</span><small>${escapeHtml(release.label||'Unknown label')} · ${escapeHtml(release.catno||'No catalogue number')} · ${escapeHtml((release.format||[]).join(' · ')||'Vinyl')}</small>${duplicate?'<b>Already in your collection</b>':''}</span><span class="identify-keep">Choose</span></label>`}).join(''):'<div class="no-results">No vinyl pressings matched. Try the other identification method or enter the record manually.</div>';setIdentifyProgress(releases.length?`Found ${releases.length} possible vinyl pressing${releases.length===1?'':'s'}.`:'No matching vinyl pressing found.',releases.length?'success':'error');identifyResults.scrollIntoView({behavior:'smooth',block:'start'})}
@@ -309,7 +309,7 @@ async function detectSpines(file){
     const horizontal=document.createElement('canvas');
     const naturalWidth=shelfHeight;
     const naturalHeight=panelWidth;
-    const enlargement=Math.max(1,Math.min(2.4,280/naturalHeight));
+    const enlargement=Math.min(2,1536/naturalWidth,256/naturalHeight);
     horizontal.width=Math.round(naturalWidth*enlargement);
     horizontal.height=Math.round(naturalHeight*enlargement);
     const ctx=horizontal.getContext('2d');
@@ -319,7 +319,7 @@ async function detectSpines(file){
     ctx.rotate(-Math.PI/2);
     ctx.filter='contrast(1.12) saturate(.9)';
     ctx.drawImage(source,x,shelfTop,panelWidth,shelfHeight,-naturalHeight*enlargement/2,-naturalWidth*enlargement/2,naturalHeight*enlargement,naturalWidth*enlargement);
-    return {dataUrl:horizontal.toDataURL('image/jpeg',.94),file:file.name,index:index+1};
+    return {dataUrl:horizontal.toDataURL('image/jpeg',.86),file:file.name,index:index+1};
   });
 }
 function renderPhotoQueue(){
@@ -440,13 +440,14 @@ document.querySelector('#run-vision').addEventListener('click',async()=>{
       button.textContent=`◌ ${progress}…`;
       try{
         const response=await fetch(`${serviceBase()}/analyze`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image:cropData[i].dataUrl,prompt}),signal:AbortSignal.timeout(240000)});
-        if(!response.ok){const detail=await response.text();throw new Error(`${response.status}: ${detail}`)}
+        if(!response.ok){let detail=await response.text();try{detail=JSON.parse(detail).error||detail}catch{}throw new Error(detail||`Vision returned ${response.status}`)}
         const result=await response.json();
         records.push(...(result.records||[]));
         activeScanRecords=dedupeVisionRecords(records);activeScanNextPanel=i+1;await saveScanCheckpoint(activeScanNextPanel>=cropData.length?'complete':'running');
         raw.push(`${crop.fileName} · panel ${crop.index}: ${result.raw||'(empty)'}`);
       }catch(panelError){
         const message=panelError.name==='TimeoutError'?'timed out after four minutes':panelError.message;
+        if(/model runner stopped|ran out of RAM|unexpected EOF/i.test(message))throw new Error(message);
         failures.push(`${crop.fileName} · panel ${crop.index} ${message}`);
         raw.push(`${crop.fileName} · panel ${crop.index}: ERROR — ${message}`);
       }

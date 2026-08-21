@@ -72,7 +72,23 @@ docker compose up -d --build
 | --- | --- | --- |
 | `GROOVEKEEPER_WEB_PORT` | `3002` | Browser UI port |
 | `GROOVEKEEPER_OLLAMA_MODEL` | `qwen2.5vl:3b` | Ollama vision model |
+| `GROOVEKEEPER_OLLAMA_CONTEXT` | `2048` | Vision context size; keep this low on memory-constrained servers |
+| `GROOVEKEEPER_OLLAMA_KEEP_ALIVE` | `2m` | Time the model remains loaded after a request |
 | `GROOVEKEEPER_DISCOGS_TOKEN` | empty | Discogs access token |
+
+### Ollama stops with `unexpected EOF`
+
+This normally means the model runner was killed under memory pressure. The default Compose configuration limits Ollama to one model and one request, uses a 2048-token context, quantizes the context cache, and retries one failed request with a smaller allocation.
+
+After updating, rebuild the containers:
+
+```sh
+git pull
+docker compose up -d --build
+docker compose logs --tail=200 ollama
+```
+
+If the logs still show the runner being killed, check the host's available RAM while scanning with `docker stats`. Adding swap can prevent abrupt termination on small CPU-only servers, though it will make recognition slower.
 
 ## Mac development
 

@@ -6,6 +6,7 @@ First request downloads the selected MLX model into the local Hugging Face cache
 """
 import base64
 import csv
+import http.client
 import io
 import json
 import os
@@ -26,6 +27,9 @@ MODEL_ID = os.environ.get("GROOVEKEEPER_VISION_MODEL", "mlx-community/Qwen2-VL-2
 VISION_PROVIDER = os.environ.get("GROOVEKEEPER_VISION_PROVIDER", "mlx").strip().lower()
 OLLAMA_URL = os.environ.get("GROOVEKEEPER_OLLAMA_URL", "http://ollama:11434").rstrip("/")
 OLLAMA_MODEL = os.environ.get("GROOVEKEEPER_OLLAMA_MODEL", "qwen2.5vl:3b")
+OLLAMA_CONTEXT = int(os.environ.get("GROOVEKEEPER_OLLAMA_CONTEXT", "2048"))
+OLLAMA_NUM_PREDICT = int(os.environ.get("GROOVEKEEPER_OLLAMA_NUM_PREDICT", "220"))
+OLLAMA_KEEP_ALIVE = os.environ.get("GROOVEKEEPER_OLLAMA_KEEP_ALIVE", "2m")
 MODEL = None
 PROCESSOR = None
 CONFIG = None
@@ -197,27 +201,57 @@ def analyze(data_url, prompt=PROMPT):
 
 def analyze_with_ollama(data_url, prompt=PROMPT):
     image_data = data_url.split(",", 1)[1] if "," in data_url else data_url
-    body = json.dumps({
-        "model": OLLAMA_MODEL,
-        "stream": False,
-        "messages": [{"role": "user", "content": prompt, "images": [image_data]}],
-        "options": {"temperature": 0, "num_predict": 384},
-    }).encode()
-    request = Request(
-        f"{OLLAMA_URL}/api/chat",
-        data=body,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-        method="POST",
-    )
+    last_error = None
+    for attempt in range(2):
+        # The retry uses an even smaller allocation. Vision OCR needs a short
+        # JSON response rather than a general-purpose chat context.
+        context = OLLAMA_CONTEXT if attempt == 0 else min(OLLAMA_CONTEXT, 1024)
+        predict = OLLAMA_NUM_PREDICT if attempt == 0 else min(OLLAMA_NUM_PREDICT, 160)
+        body = json.dumps({
+            "model": OLLAMA_MODEL,
+            "stream": False,
+            "keep_alive": OLLAMA_KEEP_ALIVE,
+            "messages": [{"role": "user", "content": prompt, "images": [image_data]}],
+            "options": {"temperature": 0, "num_ctx": context, "num_predict": predict},
+        }).encode()
+        request = Request(
+            f"{OLLAMA_URL}/api/chat",
+            data=body,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=300) as response:
+                payload = json.loads(response.read())
+            output_text = str((payload.get("message") or {}).get("content") or "")
+            return {"records": extract_json(output_text), "raw": output_text}
+        except HTTPError as error:
+            detail = error.read().decode(errors="replace")
+            last_error = f"Ollama returned {error.code}: {detail}"
+            retryable = error.code >= 500 or "unexpected eof" in detail.casefold()
+        except (URLError, http.client.IncompleteRead, http.client.RemoteDisconnected, ConnectionResetError, json.JSONDecodeError) as error:
+            last_error = f"Ollama connection ended while the model was running: {error}"
+            retryable = True
+        if attempt == 0 and retryable:
+            time.sleep(2)
+            continue
+        break
+    if "unexpected eof" in str(last_error).casefold() or "connection ended" in str(last_error).casefold():
+        raise RuntimeError(
+            "The Ollama model runner stopped unexpectedly, usually because the server ran out of RAM. "
+            "RecordShelf retried with a smaller context but it stopped again. Check `docker compose logs ollama`."
+        )
+    raise RuntimeError(last_error or "Ollama did not return a response")
+
+
+def ollama_status():
     try:
-        with urlopen(request, timeout=300) as response:
+        with urlopen(f"{OLLAMA_URL}/api/ps", timeout=3) as response:
             payload = json.loads(response.read())
-    except HTTPError as error:
-        raise RuntimeError(f"Ollama returned {error.code}: {error.read().decode(errors='replace')}") from error
-    except URLError as error:
-        raise RuntimeError(f"Could not reach Ollama at {OLLAMA_URL}: {error.reason}") from error
-    output_text = str((payload.get("message") or {}).get("content") or "")
-    return {"records": extract_json(output_text), "raw": output_text}
+        running = payload.get("models") or []
+        return True, any(str(item.get("name") or item.get("model") or "").startswith(OLLAMA_MODEL) for item in running)
+    except Exception:
+        return False, False
 
 
 def discogs_request(path, params=None):
@@ -342,7 +376,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path in ("/", "/health"):
             active_model = OLLAMA_MODEL if VISION_PROVIDER == "ollama" else MODEL_ID
-            self.send_json(200, {"ok": True, "provider": VISION_PROVIDER, "model": active_model, "loaded": MODEL is not None if VISION_PROVIDER == "mlx" else True, "discogsConfigured": bool(DISCOGS_TOKEN)})
+            reachable, loaded = ollama_status() if VISION_PROVIDER == "ollama" else (True, MODEL is not None)
+            self.send_json(200 if reachable else 503, {"ok": reachable, "provider": VISION_PROVIDER, "model": active_model, "loaded": loaded, "discogsConfigured": bool(DISCOGS_TOKEN)})
             return
         self.send_json(404, {"error": "Not found"})
 
@@ -380,7 +415,7 @@ class Handler(BaseHTTPRequestHandler):
             result = analyze(request["image"], request.get("prompt", PROMPT))
             self.send_json(200, result)
         except Exception as error:
-            self.send_json(500, {"error": str(error)})
+            self.send_json(503 if VISION_PROVIDER == "ollama" else 500, {"error": str(error)})
 
     def do_DELETE(self):
         match = re.fullmatch(r"/scan-sessions/([^/]+)", urlparse(self.path).path)

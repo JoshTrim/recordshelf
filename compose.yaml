@@ -25,6 +25,8 @@ services:
       GROOVEKEEPER_VISION_PROVIDER: ollama
       GROOVEKEEPER_OLLAMA_URL: http://ollama:11434
       GROOVEKEEPER_OLLAMA_MODEL: ${GROOVEKEEPER_OLLAMA_MODEL:-qwen2.5vl:3b}
+      GROOVEKEEPER_OLLAMA_CONTEXT: ${GROOVEKEEPER_OLLAMA_CONTEXT:-2048}
+      GROOVEKEEPER_OLLAMA_KEEP_ALIVE: ${GROOVEKEEPER_OLLAMA_KEEP_ALIVE:-2m}
       GROOVEKEEPER_DATABASE: /data/groovekeeper.sqlite3
       GROOVEKEEPER_DISCOGS_TOKEN: ${GROOVEKEEPER_DISCOGS_TOKEN:-}
       GROOVEKEEPER_USER_AGENT: ${GROOVEKEEPER_USER_AGENT:-Groovekeeper/1.0 +self-hosted}
@@ -40,6 +42,13 @@ services:
     image: ollama/ollama:latest
     container_name: groovekeeper-ollama
     restart: unless-stopped
+    environment:
+      OLLAMA_CONTEXT_LENGTH: ${GROOVEKEEPER_OLLAMA_CONTEXT:-2048}
+      OLLAMA_KEEP_ALIVE: ${GROOVEKEEPER_OLLAMA_KEEP_ALIVE:-2m}
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_FLASH_ATTENTION: "1"
+      OLLAMA_KV_CACHE_TYPE: q8_0
     volumes:
       - ollama_models:/root/.ollama
     healthcheck:
