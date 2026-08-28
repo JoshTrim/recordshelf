@@ -26,7 +26,7 @@ docker compose version
 
 ### First-time installation from a release
 
-1. Open the latest GitHub release and download its two deployment assets into an empty directory:
+1. Open the latest GitHub release, download `recordshelf-deployment.zip` into an empty directory, and extract it. The archive contains only the two files needed to run the application:
 
    - `docker-compose.yml`
    - `.env`

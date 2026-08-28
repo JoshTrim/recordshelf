@@ -89,6 +89,8 @@ jobs:
           mkdir release
           cp docker-compose.release.yml release/docker-compose.yml
           cp .env.example release/.env
+          cd release
+          zip recordshelf-deployment.zip docker-compose.yml .env
 
       - name: Create GitHub release
         env:
@@ -96,8 +98,7 @@ jobs:
         shell: bash
         run: >-
           gh release create "$GITHUB_REF_NAME"
-          release/docker-compose.yml
-          release/.env
+          release/recordshelf-deployment.zip
           --title "RecordShelf $GITHUB_REF_NAME"
           --generate-notes
           --verify-tag
