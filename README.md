@@ -29,7 +29,7 @@ docker compose version
 1. Clone the private repository and enter it:
 
    ```sh
-   git clone https://github.com/JoshTrim/recordshelf.git
+   git clone https://github.com/YOUR_GITHUB_USERNAME/recordshelf.git
    cd recordshelf
    ```
 
@@ -77,10 +77,10 @@ docker compose version
 7. Open RecordShelf from another device on the same network:
 
    ```text
-   http://YOUR-SERVER-IP:PORT
+   http://SERVER_LAN_IP:PORT
    ```
 
-   Replace `PORT` with `GROOVEKEEPER_WEB_PORT` from `.env`, for example `http://192.168.1.20:3002`.
+   Replace `SERVER_LAN_IP` with the home server's LAN address and `PORT` with `GROOVEKEEPER_WEB_PORT` from `.env`, for example `http://SERVER_LAN_IP:PORT`.
 
 If the page is unavailable from another device, allow the selected TCP port through the server firewall. Do not expose ports `8765` or `11434`; nginx proxies API and vision requests through the single web port.
 
@@ -104,6 +104,34 @@ docker compose up -d
 ```
 
 Avoid `docker compose down -v` unless you deliberately want to remove the SQLite collection and downloaded Ollama models.
+
+### Deploying a prebuilt container release
+
+Versioned `web` and `api` images are published for `linux/amd64` and `linux/arm64` at:
+
+- `ghcr.io/YOUR_GITHUB_USERNAME/recordshelf-web`
+- `ghcr.io/YOUR_GITHUB_USERNAME/recordshelf-api`
+
+Because this repository and its packages are private, first authenticate Docker using a GitHub token that can read packages:
+
+```sh
+echo "$GITHUB_CONTAINER_TOKEN" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
+```
+
+Set the release version in `.env` and start without building locally:
+
+```dotenv
+RECORDSHELF_IMAGE_PREFIX=ghcr.io/your-github-username
+RECORDSHELF_VERSION=0.1.0
+```
+
+```sh
+docker compose -f compose.yaml -f compose.release.yaml pull
+docker compose -f compose.yaml -f compose.release.yaml up -d --no-build
+docker compose -f compose.yaml -f compose.release.yaml ps
+```
+
+Use `latest` to follow the newest release automatically, or pin a numbered version for repeatable deployments. Source builds remain available with `docker compose up -d --build`.
 
 ### Shelf recognition pipeline
 
@@ -161,6 +189,8 @@ Compose reuses both named volumes during rebuilds, so application updates do not
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `GROOVEKEEPER_WEB_PORT` | `3002` | Browser UI port |
+| `RECORDSHELF_IMAGE_PREFIX` | `ghcr.io/your-github-username` | Registry namespace used for prebuilt images |
+| `RECORDSHELF_VERSION` | `latest` | Tag used when pulling prebuilt GHCR images |
 | `GROOVEKEEPER_VISION_PROVIDER` | `ollama` | `ollama`, `mistral`, or `mlx` |
 | `GROOVEKEEPER_MISTRAL_API_KEY` | empty | Optional Mistral OCR API key |
 | `GROOVEKEEPER_MISTRAL_OCR_MODEL` | `mistral-ocr-latest` | Mistral OCR model alias |
