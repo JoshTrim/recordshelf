@@ -28,8 +28,11 @@ VISION_PROVIDER = os.environ.get("GROOVEKEEPER_VISION_PROVIDER", "mlx").strip().
 OLLAMA_URL = os.environ.get("GROOVEKEEPER_OLLAMA_URL", "http://ollama:11434").rstrip("/")
 OLLAMA_MODEL = os.environ.get("GROOVEKEEPER_OLLAMA_MODEL", "qwen2.5vl:3b")
 OLLAMA_CONTEXT = int(os.environ.get("GROOVEKEEPER_OLLAMA_CONTEXT", "2048"))
-OLLAMA_NUM_PREDICT = int(os.environ.get("GROOVEKEEPER_OLLAMA_NUM_PREDICT", "220"))
+OLLAMA_NUM_PREDICT = int(os.environ.get("GROOVEKEEPER_OLLAMA_NUM_PREDICT", "320"))
 OLLAMA_KEEP_ALIVE = os.environ.get("GROOVEKEEPER_OLLAMA_KEEP_ALIVE", "2m")
+MISTRAL_API_KEY = (os.environ.get("GROOVEKEEPER_MISTRAL_API_KEY") or os.environ.get("MISTRAL_API_KEY", "")).strip()
+MISTRAL_OCR_MODEL = os.environ.get("GROOVEKEEPER_MISTRAL_OCR_MODEL", "mistral-ocr-latest")
+MISTRAL_OCR_URL = os.environ.get("GROOVEKEEPER_MISTRAL_OCR_URL", "https://api.mistral.ai/v1/ocr").strip()
 MODEL = None
 PROCESSOR = None
 CONFIG = None
@@ -131,6 +134,125 @@ def decode_image(data_url):
     return base64.b64decode(data_url)
 
 
+def detect_spine_segments(data_url):
+    """Find long jacket edges and return narrow, spine-aligned scan groups."""
+    try:
+        import cv2
+        import numpy as np
+    except ImportError as error:
+        raise RuntimeError("Automatic spine detection dependencies are unavailable") from error
+
+    encoded = np.frombuffer(decode_image(data_url), dtype=np.uint8)
+    image = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+    if image is None:
+        raise ValueError("The shelf image could not be decoded")
+    height, width = image.shape[:2]
+    scale = min(1.0, 1600 / max(1, width))
+    if scale < 1:
+        image = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+        height, width = image.shape[:2]
+
+    shelf_top = round(height * 0.025)
+    shelf_bottom = round(height * 0.965)
+    shelf = image[shelf_top:shelf_bottom]
+    gray = cv2.cvtColor(shelf, cv2.COLOR_BGR2GRAY)
+    gray = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
+    edges = cv2.Canny(cv2.GaussianBlur(gray, (3, 3), 0), 45, 130)
+    minimum_line = max(40, round(shelf.shape[0] * 0.48))
+    lines = cv2.HoughLinesP(
+        edges,
+        1,
+        np.pi / 720,
+        55,
+        minLineLength=minimum_line,
+        maxLineGap=max(25, round(shelf.shape[0] * 0.06)),
+    )
+
+    center_y = shelf.shape[0] / 2
+    line_candidates = []
+    for x1, y1, x2, y2 in lines.reshape(-1, 4) if lines is not None else []:
+        dx, dy = float(x2 - x1), float(y2 - y1)
+        length = (dx * dx + dy * dy) ** 0.5
+        if abs(dy) < minimum_line or abs(dx) > abs(dy) * 0.32:
+            continue
+        center_x = float(x1) + (center_y - float(y1)) * dx / dy
+        if 1 < center_x < width - 1:
+            line_candidates.append((center_x, length))
+
+    line_candidates.sort()
+    clusters = []
+    cluster_distance = max(4, round(width * 0.006))
+    for x, score in line_candidates:
+        if clusters and x - clusters[-1][0] / clusters[-1][2] <= cluster_distance:
+            clusters[-1][0] += x * score
+            clusters[-1][1] = max(clusters[-1][1], score)
+            clusters[-1][2] += score
+        else:
+            clusters.append([x * score, score, score])
+    candidates = [(cluster[0] / cluster[2], cluster[1]) for cluster in clusters]
+
+    minimum_gap = max(6, round(width * 0.006))
+    selected = []
+    for x, score in candidates:
+        if selected and x - selected[-1][0] < minimum_gap:
+            if score > selected[-1][1]:
+                selected[-1] = (x, score)
+        else:
+            selected.append((x, score))
+
+    boundaries = [0] + [round(x) for x, _ in selected] + [width]
+    boundaries = sorted(set(max(0, min(width, value)) for value in boundaries))
+    atomic = [(left, right) for left, right in zip(boundaries, boundaries[1:]) if right - left >= minimum_gap]
+
+    # Groups begin and end on detected jacket edges. This avoids cutting
+    # lettering while keeping requests small enough for thin spine text.
+    target_width = max(38, min(76, round(width * 0.055)))
+    if atomic and width / target_width > 28:
+        target_width = round(width / 28)
+    maximum_width = round(target_width * 1.55)
+    groups = []
+    group_left = atomic[0][0] if atomic else 0
+    group_right = group_left
+    spine_count = 0
+    for index, (left, right) in enumerate(atomic):
+        if spine_count and right - group_left > maximum_width:
+            groups.append((group_left, group_right, spine_count))
+            group_left, spine_count = left, 0
+        group_right = right
+        spine_count += 1
+        next_width = atomic[index + 1][1] - group_left if index + 1 < len(atomic) else maximum_width + 1
+        if group_right - group_left >= target_width or next_width > maximum_width:
+            groups.append((group_left, group_right, spine_count))
+            if index + 1 < len(atomic):
+                group_left = atomic[index + 1][0]
+            spine_count = 0
+    if spine_count:
+        groups.append((group_left, group_right, spine_count))
+    if len(groups) > 1 and groups[-1][1] - groups[-1][0] < target_width * 0.45:
+        previous, last = groups[-2], groups[-1]
+        groups[-2:] = [(previous[0], last[1], previous[2] + last[2])]
+
+    if len(groups) < 3:
+        fallback_width = max(80, min(150, round(width * 0.11)))
+        stride = max(1, round(fallback_width * 0.82))
+        starts = list(range(0, max(1, width - fallback_width), stride))
+        starts.append(max(0, width - fallback_width))
+        groups = [(x, min(width, x + fallback_width), 0) for x in dict.fromkeys(starts)]
+
+    return {
+        "sourceWidth": width,
+        "sourceHeight": height,
+        "shelfTop": shelf_top,
+        "shelfHeight": shelf_bottom - shelf_top,
+        "boundaryCount": max(0, len(boundaries) - 2),
+        "segments": [
+            {"x": left, "panelWidth": right - left, "spineCount": count}
+            for left, right, count in groups[:28]
+            if right > left
+        ],
+    }
+
+
 def extract_json(text):
     match = re.search(r"\[[\s\S]*\]", text or "")
     values = []
@@ -153,6 +275,16 @@ def extract_json(text):
     for item in values:
         artist = str(item.get("artist", "")).strip()
         title = str(item.get("title", "")).strip()
+        evidence = str(item.get("evidence", "")).strip()
+        placeholders = {"...", "..", ".", "unknown", "n/a", "none", "artist", "title", "short visible text", "exact words visibly read"}
+        if artist.casefold() in placeholders:
+            artist = ""
+        if title.casefold() in placeholders:
+            title = ""
+        if evidence.casefold() in placeholders:
+            evidence = ""
+        if artist and title and artist.casefold() == title.casefold():
+            title = ""
         key = (artist.casefold(), title.casefold())
         if not any(key) or key in seen:
             continue
@@ -168,14 +300,19 @@ def extract_json(text):
             "artist": artist,
             "title": title,
             "confidence": max(0, min(1, confidence)),
-            "evidence": item.get("evidence", ""),
+            "evidence": evidence,
         })
     return unique[:40]
 
 
-def analyze(data_url, prompt=PROMPT):
-    if VISION_PROVIDER == "ollama":
+def analyze(data_url, prompt=PROMPT, provider=None):
+    provider = (provider or VISION_PROVIDER).strip().lower()
+    if provider == "ollama":
         return analyze_with_ollama(data_url, prompt)
+    if provider in ("mistral", "mistral-ocr", "mistral_ocr"):
+        return analyze_with_mistral_ocr(data_url, prompt)
+    if provider != "mlx":
+        raise RuntimeError(f"Unsupported vision provider: {provider}")
 
     from mlx_vlm import generate
     from mlx_vlm.prompt_utils import apply_chat_template
@@ -244,6 +381,93 @@ def analyze_with_ollama(data_url, prompt=PROMPT):
     raise RuntimeError(last_error or "Ollama did not return a response")
 
 
+MISTRAL_RECORD_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "vinyl_record_detection",
+        "description": "Readable artist and album titles from vinyl record imagery",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "records": {
+                    "type": "array",
+                    "maxItems": 8,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "artist": {"type": "string"},
+                            "title": {"type": "string"},
+                            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                            "evidence": {"type": "string"},
+                        },
+                        "required": ["artist", "title", "confidence", "evidence"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["records"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+}
+
+
+def analyze_with_mistral_ocr(data_url, prompt=PROMPT):
+    if not MISTRAL_API_KEY:
+        raise RuntimeError("Mistral OCR is not configured. Set GROOVEKEEPER_MISTRAL_API_KEY.")
+    annotation_prompt = (prompt or PROMPT).strip() + (
+        "\nThe API schema controls the output format. Populate its records array. "
+        "Use only lettering genuinely visible in the image; use empty strings for unknown fields "
+        "and return no invented records."
+    )
+    if not str(data_url).startswith("data:"):
+        data_url = f"data:image/jpeg;base64,{data_url}"
+    body = json.dumps({
+        "model": MISTRAL_OCR_MODEL,
+        "document": {"type": "image_url", "image_url": data_url},
+        "document_annotation_prompt": annotation_prompt,
+        "document_annotation_format": MISTRAL_RECORD_SCHEMA,
+    }).encode()
+    request = Request(
+        MISTRAL_OCR_URL,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {MISTRAL_API_KEY}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=180) as response:
+            payload = json.loads(response.read())
+    except HTTPError as error:
+        detail = error.read().decode(errors="replace")
+        try:
+            detail = json.loads(detail).get("message", detail)
+        except json.JSONDecodeError:
+            pass
+        raise RuntimeError(f"Mistral OCR returned {error.code}: {detail}") from error
+    except (URLError, http.client.IncompleteRead, http.client.RemoteDisconnected, ConnectionResetError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"Could not reach Mistral OCR: {error}") from error
+
+    annotation = payload.get("document_annotation")
+    if isinstance(annotation, str):
+        try:
+            annotation = json.loads(annotation)
+        except json.JSONDecodeError:
+            pass
+    annotation_text = annotation if isinstance(annotation, str) else json.dumps(annotation)
+    records = extract_json(annotation_text) if annotation is not None else []
+    pages = payload.get("pages") or []
+    page_text = "\n\n".join(str(page.get("markdown") or "") for page in pages if isinstance(page, dict)).strip()
+    if not records and page_text:
+        records = extract_json(page_text)
+    raw = json.dumps({"annotation": annotation, "pages": page_text}, ensure_ascii=False)
+    return {"records": records, "raw": raw}
+
+
 def ollama_status():
     try:
         with urlopen(f"{OLLAMA_URL}/api/ps", timeout=3) as response:
@@ -279,7 +503,7 @@ def discogs_request(path, params=None):
         raise RuntimeError(f"Could not reach Discogs: {error.reason}") from error
 
 
-def search_discogs(artist="", title="", barcode=""):
+def search_discogs(artist="", title="", barcode="", query=""):
     search_params = {
         "type": "release",
         "format": "Vinyl",
@@ -287,6 +511,8 @@ def search_discogs(artist="", title="", barcode=""):
     }
     if barcode:
         search_params["barcode"] = re.sub(r"\D", "", barcode)
+    elif query:
+        search_params["q"] = query
     else:
         search_params["artist"] = artist
         search_params["release_title"] = title
@@ -355,12 +581,13 @@ class Handler(BaseHTTPRequestHandler):
             params = parse_qs(parsed.query)
             artist = (params.get("artist") or [""])[0].strip()
             title = (params.get("title") or [""])[0].strip()
+            query = (params.get("q") or [""])[0].strip()
             barcode = re.sub(r"\D", "", (params.get("barcode") or [""])[0])
-            if not artist and not title and not barcode:
-                self.send_json(400, {"error": "Artist, title or barcode is required"})
+            if not artist and not title and not query and not barcode:
+                self.send_json(400, {"error": "Artist, title, text query or barcode is required"})
                 return
             try:
-                self.send_json(200, {"releases": search_discogs(artist, title, barcode)})
+                self.send_json(200, {"releases": search_discogs(artist, title, barcode, query)})
             except Exception as error:
                 self.send_json(502, {"error": str(error)})
             return
@@ -375,14 +602,29 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(502, {"error": str(error)})
             return
         if parsed.path in ("/", "/health"):
-            active_model = OLLAMA_MODEL if VISION_PROVIDER == "ollama" else MODEL_ID
-            reachable, loaded = ollama_status() if VISION_PROVIDER == "ollama" else (True, MODEL is not None)
-            self.send_json(200 if reachable else 503, {"ok": reachable, "provider": VISION_PROVIDER, "model": active_model, "loaded": loaded, "discogsConfigured": bool(DISCOGS_TOKEN)})
+            if VISION_PROVIDER == "ollama":
+                active_model = OLLAMA_MODEL
+                reachable, loaded = ollama_status()
+            elif VISION_PROVIDER in ("mistral", "mistral-ocr", "mistral_ocr"):
+                active_model = MISTRAL_OCR_MODEL
+                reachable = bool(MISTRAL_API_KEY)
+                loaded = reachable
+            else:
+                active_model = MODEL_ID
+                reachable, loaded = True, MODEL is not None
+            self.send_json(200 if reachable else 503, {"ok": reachable, "provider": VISION_PROVIDER, "model": active_model, "loaded": loaded, "discogsConfigured": bool(DISCOGS_TOKEN), "mistralConfigured": bool(MISTRAL_API_KEY)})
             return
         self.send_json(404, {"error": "Not found"})
 
     def do_POST(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/segment-spines":
+            try:
+                request = self.read_json()
+                self.send_json(200, detect_spine_segments(request["image"]))
+            except Exception as error:
+                self.send_json(400, {"error": str(error)})
+            return
         if parsed.path == "/collection/sync":
             try:
                 request = self.read_json()
@@ -410,12 +652,14 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path != "/analyze":
             self.send_json(404, {"error": "Not found"})
             return
+        provider = VISION_PROVIDER
         try:
             request = self.read_json()
-            result = analyze(request["image"], request.get("prompt", PROMPT))
+            provider = str(request.get("provider") or VISION_PROVIDER)
+            result = analyze(request["image"], request.get("prompt", PROMPT), provider)
             self.send_json(200, result)
         except Exception as error:
-            self.send_json(503 if VISION_PROVIDER == "ollama" else 500, {"error": str(error)})
+            self.send_json(503 if provider.strip().lower() in ("ollama", "mistral", "mistral-ocr", "mistral_ocr") else 500, {"error": str(error)})
 
     def do_DELETE(self):
         match = re.fullmatch(r"/scan-sessions/([^/]+)", urlparse(self.path).path)

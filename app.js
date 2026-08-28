@@ -269,8 +269,8 @@ document.querySelector('#close-modal').addEventListener('click',()=>backdrop.hid
 document.querySelector('#lookup-button').addEventListener('click',()=>{const artist=document.querySelector('[name=artist]').value||'your artist';const title=document.querySelector('[name=title]').value||'this release';const out=document.querySelector('#lookup-result');out.hidden=false;out.innerHTML=`<strong>Possible match found</strong><br>${artist} — ${title}, original release. Exact pressing data will connect here when a Discogs API key is configured.`});
 document.querySelector('#add-form').addEventListener('submit',e=>{e.preventDefault();const artist=e.target.querySelector('[name=artist]').value;const title=e.target.querySelector('[name=title]').value;const condition=e.target.querySelector('[name=condition]').value;const record=createCollectionRecord(artist,title,{condition});records.push(record);saveRecords();backdrop.hidden=true;e.target.reset();showCollection();queueArtwork(record);toast.innerHTML='Record added to your collection <span>✓</span>';toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),2800)});
 
-// Spine scan flow. OCR runs in the browser with Tesseract.js; photos are not
-// uploaded to this app. The fallback keeps the prototype usable offline.
+// Spine scan flow. The local OCR fallback runs in the browser with Tesseract.js;
+// the optional Mistral provider sends only prepared crops to Mistral's OCR API.
 const spineInput=document.querySelector('#spine-input'); const dropzone=document.querySelector('#dropzone'); const photoQueue=document.querySelector('#photo-queue'); const photoStrip=document.querySelector('#photo-strip'); const autoScan=document.querySelector('#auto-scan'); const detectedCrops=document.querySelector('#detected-crops'); const scanResults=document.querySelector('#scan-results'); const scanFiles=[]; const cropData=[]; let bulkScanRunning=false;let activeScanSessionId='';let activeScanNextPanel=0;let activeScanRecords=[];
 async function saveScanCheckpoint(status='prepared'){
   if(!cropData.length)return;const payload={id:activeScanSessionId||undefined,status,nextPanel:activeScanNextPanel,records:activeScanRecords,crops:cropData,photos:scanFiles.map(entry=>({id:entry.id,name:entry.file.name,url:entry.url?.startsWith('data:')?entry.url:''}))};
@@ -286,6 +286,28 @@ document.querySelector('#add-more-photos').addEventListener('click',()=>spineInp
 ['dragleave','drop'].forEach(event=>dropzone.addEventListener(event,e=>{e.preventDefault();dropzone.classList.remove('dragging')}));
 dropzone.addEventListener('drop',e=>addSpineFiles([...e.dataTransfer.files])); spineInput.addEventListener('change',e=>addSpineFiles([...e.target.files]));
 function loadImage(source){return new Promise((resolve,reject)=>{const image=new Image();const objectUrl=typeof source==='string'?'':URL.createObjectURL(source);image.onload=()=>{if(objectUrl)URL.revokeObjectURL(objectUrl);resolve(image)};image.onerror=error=>{if(objectUrl)URL.revokeObjectURL(objectUrl);reject(error)};image.src=objectUrl||source})}
+function renderSpinePanel(source,x,shelfTop,shelfHeight,panelWidth,options={}){
+  const widthFactor=Number(options.widthFactor)||1;
+  const requestedWidth=Math.max(1,Math.min(source.width,Math.round(panelWidth*widthFactor)));
+  const center=x+panelWidth/2;
+  const left=Math.max(0,Math.min(Math.max(0,source.width-requestedWidth),Math.round(center-requestedWidth/2)));
+  const naturalWidth=shelfHeight;
+  const naturalHeight=requestedWidth;
+  const maxLong=Number(options.maxLong)||1536;
+  const maxShort=Number(options.maxShort)||256;
+  const enlargement=Math.min(Number(options.enlargementCap)||2,maxLong/Math.max(1,naturalWidth),maxShort/Math.max(1,naturalHeight));
+  const horizontal=document.createElement('canvas');
+  horizontal.width=Math.max(1,Math.round(naturalWidth*enlargement));
+  horizontal.height=Math.max(1,Math.round(naturalHeight*enlargement));
+  const ctx=horizontal.getContext('2d');
+  ctx.imageSmoothingEnabled=true;
+  ctx.imageSmoothingQuality='high';
+  ctx.translate(horizontal.width/2,horizontal.height/2);
+  ctx.rotate(Number.isFinite(Number(options.rotation))?Number(options.rotation):-Math.PI/2);
+  ctx.filter=options.enhanced?'grayscale(1) contrast(1.5) brightness(1.06)':'contrast(1.12) saturate(.9)';
+  ctx.drawImage(source,left,shelfTop,requestedWidth,shelfHeight,-naturalHeight*enlargement/2,-naturalWidth*enlargement/2,naturalHeight*enlargement,naturalWidth*enlargement);
+  return horizontal.toDataURL('image/jpeg',options.enhanced ? .92 : .86);
+}
 async function detectSpines(file){
   const image=await loadImage(file);
   const source=document.createElement('canvas');
@@ -294,33 +316,37 @@ async function detectSpines(file){
   source.height=Math.round(image.height*scale);
   source.getContext('2d').drawImage(image,0,0,source.width,source.height);
 
-  // A lightweight model can read a handful of enlarged spines, but not an
-  // entire shelf. Overlapping panels avoid requiring user-drawn boxes and
-  // keep records on a panel boundary visible in the neighbouring panel.
-  const shelfTop=Math.round(source.height*.025);
-  const shelfHeight=Math.round(source.height*.94);
-  const panelWidth=Math.max(105,Math.min(220,Math.round(source.width*.15)));
-  const stride=Math.round(panelWidth*.72);
-  const starts=[];
-  for(let x=0;x<source.width-panelWidth;x+=stride)starts.push(x);
-  starts.push(Math.max(0,source.width-panelWidth));
-
-  return [...new Set(starts)].slice(0,12).map((x,index)=>{
-    const horizontal=document.createElement('canvas');
-    const naturalWidth=shelfHeight;
-    const naturalHeight=panelWidth;
-    const enlargement=Math.min(2,1536/naturalWidth,256/naturalHeight);
-    horizontal.width=Math.round(naturalWidth*enlargement);
-    horizontal.height=Math.round(naturalHeight*enlargement);
-    const ctx=horizontal.getContext('2d');
-    ctx.imageSmoothingEnabled=true;
-    ctx.imageSmoothingQuality='high';
-    ctx.translate(horizontal.width/2,horizontal.height/2);
-    ctx.rotate(-Math.PI/2);
-    ctx.filter='contrast(1.12) saturate(.9)';
-    ctx.drawImage(source,x,shelfTop,panelWidth,shelfHeight,-naturalHeight*enlargement/2,-naturalWidth*enlargement/2,naturalHeight*enlargement,naturalWidth*enlargement);
-    return {dataUrl:horizontal.toDataURL('image/jpeg',.86),file:file.name,index:index+1};
-  });
+  let detection;
+  try{
+    const response=await fetch(`${serviceBase()}/segment-spines`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image:source.toDataURL('image/jpeg',.88)}),signal:AbortSignal.timeout(30000)});
+    if(!response.ok)throw new Error(`Spine detection returned ${response.status}`);
+    detection=await response.json();
+    if(!Array.isArray(detection.segments)||!detection.segments.length)throw new Error('No spine boundaries were returned');
+  }catch(error){
+    console.warn('Using overlapping shelf sections because automatic spine boundaries were unavailable',error);
+    const shelfTop=Math.round(source.height*.025);const shelfHeight=Math.round(source.height*.94);
+    const panelWidth=Math.max(1,Math.min(source.width,Math.max(105,Math.min(220,Math.round(source.width*.15)))));const stride=Math.max(1,Math.round(panelWidth*.72));const starts=[];
+    for(let x=0;x<source.width-panelWidth;x+=stride)starts.push(x);starts.push(Math.max(0,source.width-panelWidth));
+    detection={sourceWidth:source.width,sourceHeight:source.height,shelfTop,shelfHeight,boundaryCount:0,segments:[...new Set(starts)].slice(0,12).map(x=>({x,panelWidth,spineCount:0}))};
+  }
+  const coordinateScale=source.width/Math.max(1,Number(detection.sourceWidth)||source.width);
+  const shelfTop=Math.round((Number(detection.shelfTop)||0)*coordinateScale);
+  const shelfHeight=Math.min(source.height-shelfTop,Math.round((Number(detection.shelfHeight)||source.height)*coordinateScale));
+  return detection.segments.map((segment,index)=>{
+    const x=Math.round(Number(segment.x)*coordinateScale);const panelWidth=Math.max(1,Math.round(Number(segment.panelWidth)*coordinateScale));
+    return {
+    dataUrl:renderSpinePanel(source,x,shelfTop,shelfHeight,panelWidth,{maxLong:1800,maxShort:280}),
+    file:file.name,
+    index:index+1,
+    x,
+    panelWidth,
+    shelfTop,
+    shelfHeight,
+    sourceWidth:source.width,
+    sourceHeight:source.height,
+    spineCount:Number(segment.spineCount)||0,
+    boundaryCount:Number(detection.boundaryCount)||0,
+  }});
 }
 function renderPhotoQueue(){
   photoQueue.hidden=!scanFiles.length;
@@ -329,8 +355,8 @@ function renderPhotoQueue(){
   photoStrip.innerHTML=scanFiles.map((entry,index)=>`<div class="photo-queue-item"><img class="photo-thumb" src="${entry.url}" alt="${escapeHtml(entry.file.name)}"><button type="button" data-remove-photo="${entry.id}" aria-label="Remove ${escapeHtml(entry.file.name)}">×</button><span>${index+1}</span></div>`).join('');
 }
 function renderPreparedPanels(){
-  detectedCrops.innerHTML=cropData.length?cropData.map((crop,i)=>`<div class="detected-crop"><img src="${crop.dataUrl}" alt="Automatic shelf panel ${i+1}"><label>${escapeHtml(crop.fileName)} · panel ${crop.index}</label></div>`).join(''):'<div class="no-results">No shelf panels prepared.</div>';
-  document.querySelector('#crop-photo-label').textContent=`${cropData.length} panels from ${scanFiles.length} photo${scanFiles.length===1?'':'s'}`;
+  detectedCrops.innerHTML=cropData.length?cropData.map((crop,i)=>`<div class="detected-crop"><img src="${crop.dataUrl}" alt="Automatic spine group ${i+1}"><label>${escapeHtml(crop.fileName)} · group ${crop.index}${crop.spineCount?` · ~${crop.spineCount} spines`:''}</label></div>`).join(''):'<div class="no-results">No spine groups prepared.</div>';
+  document.querySelector('#crop-photo-label').textContent=`${cropData.length} spine groups from ${scanFiles.length} photo${scanFiles.length===1?'':'s'}`;
   document.querySelector('#run-scan').disabled=!cropData.length||bulkScanRunning;
   document.querySelector('#run-vision').disabled=!cropData.length||bulkScanRunning;
 }
@@ -366,45 +392,128 @@ function titleCaseWords(value){
   const title=(value||'').trim().toLocaleLowerCase();
   return title.replace(/(^|[\s\-–—/([{“‘])([\p{L}\p{N}])/gu,(_,prefix,letter)=>prefix+letter.toLocaleUpperCase());
 }
+function normalizeVisionText(value,role=''){
+  let text=String(value||'').toLocaleLowerCase().normalize('NFKD').replace(/\p{M}/gu,'').replace(/[^\p{L}\p{N}]+/gu,' ').trim();
+  if(role==='artist')text=text.replace(/^the\s+/,'');
+  return text;
+}
+function isPlaceholderVisionText(value){return new Set(['','...','..','.','unknown','n a','none','artist','title','short visible text','exact words visibly read']).has(normalizeVisionText(value))}
+function isMetaVisionEvidence(value){const text=normalizeVisionText(value);return ['the image is','image is not','spine has','spine of the book','clear legible','not clear enough','one narrow vinyl spine','written on it'].some(phrase=>text.includes(phrase))}
+function visionEvidenceSupport(value,evidence){
+  const valueTokens=normalizeVisionText(value).split(' ').filter(token=>token.length>2);const evidenceTokens=new Set(normalizeVisionText(evidence).split(' ').filter(token=>token.length>2));
+  if(!valueTokens.length||!evidenceTokens.size)return 0;return valueTokens.filter(token=>evidenceTokens.has(token)).length/valueTokens.length;
+}
+function visionTextSimilarity(left,right,role=''){
+  const a=normalizeVisionText(left,role);const b=normalizeVisionText(right,role);
+  if(!a||!b)return 0;
+  if(a===b)return 1;
+  if(Math.min(a.length,b.length)<3)return 0;
+  const previous=Array.from({length:b.length+1},(_,index)=>index);
+  for(let row=1;row<=a.length;row++){
+    let diagonal=previous[0];previous[0]=row;
+    for(let column=1;column<=b.length;column++){
+      const above=previous[column];
+      previous[column]=a[row-1]===b[column-1]?diagonal+0:Math.min(previous[column]+1,previous[column-1]+1,diagonal+1);
+      diagonal=above;
+    }
+  }
+  const editScore=1-previous[b.length]/Math.max(a.length,b.length);
+  const leftTokens=new Set(a.split(' '));const rightTokens=new Set(b.split(' '));
+  const overlap=[...leftTokens].filter(token=>rightTokens.has(token)).length;
+  const tokenScore=overlap/Math.max(leftTokens.size,rightTokens.size);
+  return Math.max(editScore,tokenScore);
+}
+function visionRecordsMatch(left,right){
+  const leftArtist=normalizeVisionText(left.artist,'artist');const rightArtist=normalizeVisionText(right.artist,'artist');
+  const leftTitle=normalizeVisionText(left.title);const rightTitle=normalizeVisionText(right.title);
+  if(leftArtist&&rightArtist&&leftTitle&&rightTitle){
+    const artistScore=visionTextSimilarity(left.artist,right.artist,'artist');
+    const titleScore=visionTextSimilarity(left.title,right.title);
+    return artistScore>=.82&&titleScore>=.78&&artistScore+titleScore>=1.68;
+  }
+  // Do not merge a partial result into a complete result: two albums by the
+  // same artist, or two artists with the same title, are both common.
+  if(leftArtist&&rightArtist&&!leftTitle&&!rightTitle)return visionTextSimilarity(left.artist,right.artist,'artist')>=.96;
+  if(leftTitle&&rightTitle&&!leftArtist&&!rightArtist)return visionTextSimilarity(left.title,right.title)>=.96;
+  return false;
+}
+function visionRecordQuality(item){
+  const confidence=Math.max(0,Math.min(1,Number(item.confidence)||0));
+  return (item.artist?1:0)+(item.title?1:0)+confidence+(item.evidence?.trim()?0.05:0)+(item.corroborated?2:0)-(item.fragmentOnly?.5:0);
+}
+function mergeVisionRecords(existing,candidate){
+  const preferred=visionRecordQuality(candidate)>visionRecordQuality(existing)?candidate:existing;
+  const merged={...preferred};
+  if(!merged.artist&&candidate.artist)merged.artist=candidate.artist;
+  if(!merged.title&&candidate.title)merged.title=candidate.title;
+  if(!merged.evidence&&candidate.evidence)merged.evidence=candidate.evidence;
+  merged.confidence=Math.max(Number(existing.confidence)||0,Number(candidate.confidence)||0);
+  return merged;
+}
 function dedupeVisionRecords(items){
-  const normalize=value=>(value||'').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g,' ').trim();
   const unique=[];
-  for(const originalItem of items){
-    let item=originalItem;
-    if(!item||(!normalize(item.artist)&&!normalize(item.title)))continue;
-    item={...item,artist:titleCaseWords(item.artist),title:titleCaseWords(item.title)};
-    const key=`${normalize(item.artist)}|${normalize(item.title)}`;
-    const existing=unique.find(entry=>entry.key===key);
-    if(existing){if(Number(item.confidence)>Number(existing.item.confidence))existing.item=item;continue}
-    unique.push({key,item});
+  for(const originalItem of items||[]){
+    if(!originalItem||typeof originalItem!=='object')continue;
+    let artist=titleCaseWords(String(originalItem.artist||''));
+    let title=titleCaseWords(String(originalItem.title||''));
+    let evidence=String(originalItem.evidence||'').trim();
+    const ocrText=String(originalItem.ocrText||'').trim();
+    if(isPlaceholderVisionText(artist))artist='';if(isPlaceholderVisionText(title))title='';if(isPlaceholderVisionText(evidence)||isMetaVisionEvidence(evidence))evidence='';
+    if(normalizeVisionText(artist)&&normalizeVisionText(artist)===normalizeVisionText(title))title='';
+    if(evidence){if(artist&&visionEvidenceSupport(artist,evidence)<.34)artist='';if(title&&visionEvidenceSupport(title,evidence)<.34)title=''}
+    if(!normalizeVisionText(artist)&&!normalizeVisionText(title)&&normalizeVisionText(evidence).length<4)continue;
+    let confidence=Number(originalItem.confidence);if(!Number.isFinite(confidence))confidence=0;if(confidence>1)confidence/=100;
+    const corroborated=Boolean(ocrText&&(visionEvidenceSupport(artist,ocrText)>=.34||visionEvidenceSupport(title,ocrText)>=.34||visionEvidenceSupport(evidence,ocrText)>=.34));
+    const item={...originalItem,artist,title,confidence:Math.max(0,Math.min(1,confidence)),evidence,ocrText,corroborated,fragmentOnly:!artist&&!title};
+    const existing=unique.find(entry=>visionRecordsMatch(entry.item,item));
+    const evidenceMatch=!artist&&!title&&unique.find(entry=>!entry.item.artist&&!entry.item.title&&visionTextSimilarity(entry.item.evidence,evidence)>=.9);
+    if(existing)existing.item=mergeVisionRecords(existing.item,item);
+    else if(evidenceMatch)evidenceMatch.item=mergeVisionRecords(evidenceMatch.item,item);
+    else unique.push({item});
   }
   return unique.map(entry=>entry.item);
 }
-const scanReleaseMatches=new Map();let scanDiscogsUnavailable='';
+function buildVisionShortlist(items){
+  const clean=dedupeVisionRecords(items);const groups=new Map();
+  clean.forEach((item,index)=>{const key=item.groupId||`ungrouped-${index}`;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(item)});
+  const shortlist=[];for(const group of groups.values()){group.sort((left,right)=>visionRecordQuality(right)-visionRecordQuality(left));if(group[0])shortlist.push(group[0]);shortlist.push(...group.slice(1).filter(item=>item.corroborated).slice(0,1))}
+  return shortlist.slice(0,24);
+}
+const scanReleaseMatches=new Map();const scanReadings=new Map();let scanDiscogsUnavailable='';
 function renderScanRows(items,source='VIS'){
-  scanReleaseMatches.clear();scanDiscogsUnavailable='';
-  document.querySelector('#match-list').innerHTML=items.length?items.map((item,index)=>{const id=globalThis.crypto?.randomUUID?.()||`scan-${Date.now()}-${index}`;return `<article class="match-row" data-scan-id="${id}"><input class="match-check" type="checkbox" checked aria-label="Add this record"><span class="match-cover cover-${(index%6)+1}">${source}</span><span class="match-edit"><input aria-label="Album title" value="${escapeHtml(item.title||'')}"><input aria-label="Artist" value="${escapeHtml(item.artist||'')}" placeholder="Unknown artist"><small>${source==='VIS'?`${Math.round((Number(item.confidence)||0)*100)}% vision confidence`:'OCR result · check spelling'}</small></span><span class="release-match"><span class="release-match-status">Waiting to match…</span><select class="release-select" aria-label="Discogs pressing" hidden></select><button class="scan-match-button" type="button">Find release</button></span></article>`}).join(''):'<div class="no-results">No titles were returned.</div>';
+  scanReleaseMatches.clear();scanReadings.clear();scanDiscogsUnavailable='';
+  document.querySelector('#match-list').innerHTML=items.length?items.map((item,index)=>{const id=globalThis.crypto?.randomUUID?.()||`scan-${Date.now()}-${index}`;scanReadings.set(id,item);return `<article class="match-row" data-scan-id="${id}"><input class="match-check" type="checkbox" ${item.corroborated?'checked':''} aria-label="Add this record"><span class="match-cover cover-${(index%6)+1}">${source}</span><span class="match-edit"><input aria-label="Album title" value="${escapeHtml(item.title||'')}"><input aria-label="Artist" value="${escapeHtml(item.artist||'')}" placeholder="Unknown artist"><small>${source==='VIS'?`${item.fragmentOnly?'Text fragment':`${Math.round((Number(item.confidence)||0)*100)}% vision confidence`}${item.corroborated?' · OCR confirmed':''}${item.evidence?` · read “${escapeHtml(item.evidence)}”`:''}`:'OCR result · check spelling'}</small></span><span class="release-match"><span class="release-match-status">Waiting to match…</span><select class="release-select" aria-label="Discogs pressing" hidden></select><button class="scan-match-button" type="button">Find release</button></span></article>`}).join(''):'<div class="no-results">No titles were returned.</div>';
   if(items.length)setTimeout(autoMatchScanRows,0);
+}
+function rankScanCandidates(candidates,artist,title,evidence,ocrText=''){
+  const evidenceText=normalizeVisionText(`${evidence} ${ocrText}`);const evidenceTokens=new Set(evidenceText.split(' ').filter(token=>token.length>2));
+  return candidates.map(release=>{const names=splitDiscogsTitle(release.title);let score=0,weight=0;
+    if(artist){score+=visionTextSimilarity(artist,names.artist,'artist')*.48;weight+=.48}
+    if(title){score+=visionTextSimilarity(title,names.title)*.52;weight+=.52}
+    if(evidenceTokens.size){const releaseTokens=new Set(normalizeVisionText(release.title).split(' '));const overlap=[...evidenceTokens].filter(token=>releaseTokens.has(token)).length/evidenceTokens.size;score+=overlap*.22;weight+=.22}
+    return {...release,_scanScore:weight?score/weight:0};
+  }).sort((left,right)=>right._scanScore-left._scanScore);
 }
 function updateScanReleaseChoice(row){
   const state=scanReleaseMatches.get(row.dataset.scanId);if(!state)return;
   const select=row.querySelector('.release-select');const release=state.candidates.find(item=>String(item.id)===String(select.value))||state.candidates[0];state.selected=release;
   const cover=row.querySelector('.match-cover');cover.classList.toggle('has-artwork',Boolean(release.coverUrl));cover.innerHTML=release.coverUrl?`<img src="${escapeHtml(release.coverUrl)}" alt="" loading="lazy">`:'VIS';
-  const artist=row.querySelector('[aria-label="Artist"]').value;const title=row.querySelector('[aria-label="Album title"]').value;
+  const artistInput=row.querySelector('[aria-label="Artist"]');const titleInput=row.querySelector('[aria-label="Album title"]');const artist=artistInput.value;const title=titleInput.value;
   const duplicate=records.some(record=>String(record.discogsReleaseId||'')===String(release.id)||recordKey(record.artist,record.title)===recordKey(artist,title));
   row.querySelector('.release-match-status').innerHTML=`<strong>${duplicate?'Already in collection':'Suggested pressing'}</strong><small>${escapeHtml(release.year||'Unknown year')} · ${escapeHtml(release.country||'Unknown country')} · ${escapeHtml(release.label||'Unknown label')} · ${escapeHtml(release.catno||'No cat. no.')}</small>`;
   row.classList.toggle('possible-existing',duplicate);
 }
 async function searchScanRow(row){
   const status=row.querySelector('.release-match-status');const button=row.querySelector('.scan-match-button');const select=row.querySelector('.release-select');
-  const artist=row.querySelector('[aria-label="Artist"]').value.trim();const title=row.querySelector('[aria-label="Album title"]').value.trim();
-  if(!artist&&!title){status.textContent='Add an artist or title to search.';return}
+  const artist=row.querySelector('[aria-label="Artist"]').value.trim();const title=row.querySelector('[aria-label="Album title"]').value.trim();const reading=scanReadings.get(row.dataset.scanId)||{};const evidence=String(reading.evidence||'').trim();const ocrText=String(reading.ocrText||'').trim();
+  if(!artist&&!title&&!evidence){status.textContent='Add an artist, title or readable fragment to search.';return}
   if(scanDiscogsUnavailable){status.textContent=scanDiscogsUnavailable;button.textContent='Retry';return}
   button.disabled=true;button.textContent='Searching…';status.textContent='Searching Discogs…';select.hidden=true;
   try{
-    const params=new URLSearchParams({artist,title});const response=await fetch(`${serviceBase()}/discogs/search?${params}`,{signal:AbortSignal.timeout(25000)});const result=await response.json();
-    if(!response.ok){if(result.setupRequired){scanDiscogsUnavailable='Add your Discogs token, then restart the local server.';throw new Error(scanDiscogsUnavailable)}throw new Error(result.error||`Search returned ${response.status}`)}
-    const candidates=(result.releases||[]).slice(0,6);if(!candidates.length){status.textContent='No vinyl release found. Edit the text and retry.';return}
+    const queries=[];if(artist||title)queries.push(new URLSearchParams({artist,title}));if(artist&&title)queries.push(new URLSearchParams({title}));if(evidence)queries.push(new URLSearchParams({q:evidence.slice(0,120)}));const catalogueHints=[...ocrText.toLocaleUpperCase().replace(/[^A-Z0-9]+/g,' ').matchAll(/\b[A-Z]{1,5}\s+\d{2,6}\b/g)].map(match=>match[0]).slice(0,2);catalogueHints.forEach(q=>queries.push(new URLSearchParams({q})));if(!queries.length)queries.push(new URLSearchParams({q:[artist,title,evidence].filter(Boolean).join(' ')}));
+    let candidates=[];
+    for(const params of queries){const response=await fetch(`${serviceBase()}/discogs/search?${params}`,{signal:AbortSignal.timeout(25000)});const result=await response.json();if(!response.ok){if(result.setupRequired){scanDiscogsUnavailable='Add your Discogs token, then restart the local server.';throw new Error(scanDiscogsUnavailable)}throw new Error(result.error||`Search returned ${response.status}`)}candidates=rankScanCandidates([...candidates,...(result.releases||[]).filter(release=>!candidates.some(existing=>String(existing.id)===String(release.id)))],artist,title,evidence,ocrText);if(candidates[0]?._scanScore>=.72)break}
+    candidates=candidates.slice(0,6);if(!candidates.length){status.textContent='No vinyl release found. Edit the text and retry.';return}
     scanReleaseMatches.set(row.dataset.scanId,{candidates,selected:candidates[0]});
     select.innerHTML=candidates.map(release=>`<option value="${release.id}">${escapeHtml(release.title)} · ${escapeHtml(release.year||'—')} · ${escapeHtml(release.country||'—')} · ${escapeHtml(release.catno||'no cat. no.')}</option>`).join('');select.hidden=false;updateScanReleaseChoice(row);
   }catch(error){status.textContent=error.name==='TimeoutError'?'Discogs search timed out. Retry this row.':error.message}
@@ -415,11 +524,55 @@ async function autoMatchScanRows(){
 }
 document.querySelector('#match-list').addEventListener('click',event=>{const button=event.target.closest('.scan-match-button');if(button){scanDiscogsUnavailable='';searchScanRow(button.closest('.match-row'))}});
 document.querySelector('#match-list').addEventListener('change',event=>{if(event.target.matches('.release-select'))updateScanReleaseChoice(event.target.closest('.match-row'));if(event.target.matches('.match-edit input')){const row=event.target.closest('.match-row');scanReleaseMatches.delete(row.dataset.scanId);row.querySelector('.release-select').hidden=true;row.querySelector('.release-match-status').textContent='Text changed — search again.';row.classList.remove('possible-existing')}});
-function renderVisionRecords(records,raw=''){const clean=dedupeVisionRecords(records);const status=document.querySelector('#vision-status');status.hidden=false;status.className=`vision-status ${clean.length?'success':'error'}`;status.textContent=clean.length?`Finished: ${clean.length} possible record${clean.length===1?'':'s'} found across ${scanFiles.length} photo${scanFiles.length===1?'':'s'}. Matching releases now…`:`The model completed every panel but returned no structured records. Raw responses:\n${raw||'(empty response)'}`;scanResults.hidden=false;document.querySelector('#match-count').textContent=clean.length;renderScanRows(clean,'VIS');scanResults.scrollIntoView({behavior:'smooth',block:'start'})}
+async function createAdaptiveRetryImage(crop){
+  const entry=scanFiles.find(item=>item.id===crop.fileId);
+  if(entry?.file?.type?.startsWith('image/')&&Number.isFinite(Number(crop.x))&&Number.isFinite(Number(crop.panelWidth))){
+    const image=await loadImage(entry.file);
+    const source=document.createElement('canvas');
+    const baseScale=Math.min(1,1600/image.width);
+    const scale=Math.min(1,2400/image.width);
+    source.width=Math.round(image.width*scale);
+    source.height=Math.round(image.height*scale);
+    source.getContext('2d').drawImage(image,0,0,source.width,source.height);
+    const coordinateScale=scale/baseScale;
+    const retryX=Number(crop.x)*coordinateScale;
+    const retryWidth=Number(crop.panelWidth)*coordinateScale;
+    return renderSpinePanel(source,retryX,0,source.height,retryWidth,{widthFactor:1.35,enhanced:true,rotation:Math.PI/2,maxLong:2048,maxShort:384});
+  }
+  const image=await loadImage(crop.dataUrl);
+  const enhanced=document.createElement('canvas');
+  enhanced.width=image.width;enhanced.height=image.height;
+  const context=enhanced.getContext('2d');
+  context.translate(image.width/2,image.height/2);
+  context.rotate(Math.PI);
+  context.filter='grayscale(1) contrast(1.5) brightness(1.06)';
+  context.drawImage(image,-image.width/2,-image.height/2);
+  return enhanced.toDataURL('image/jpeg',.92);
+}
+async function readRetryOcr(image){
+  if(!window.Tesseract)return '';
+  try{
+    const result=await Tesseract.recognize(image,'eng',{config:{tessedit_pageseg_mode:'11'}});
+    return String(result.data?.text||'').replace(/\s+/g,' ').trim().slice(0,500);
+  }catch{return ''}
+}
+function visionNeedsRetry(items,raw=''){
+  const valid=dedupeVisionRecords(items);
+  if(!valid.length)return true;
+  const complete=valid.filter(item=>String(item.artist||'').trim()&&String(item.title||'').trim());
+  return !complete.length||valid.some(item=>item.fragmentOnly)||(String(raw||'').includes('[')&&!String(raw||'').includes(']'));
+}
+async function requestVisionPanel(image,prompt){
+  const response=await fetch(`${serviceBase()}/analyze`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image,prompt}),signal:AbortSignal.timeout(240000)});
+  if(!response.ok){let detail=await response.text();try{detail=JSON.parse(detail).error||detail}catch{}throw new Error(detail||`Vision returned ${response.status}`)}
+  return response.json();
+}
+function renderVisionRecords(records,raw=''){const clean=buildVisionShortlist(records);const status=document.querySelector('#vision-status');status.hidden=false;status.className=`vision-status ${clean.length?'success':'error'}`;status.textContent=clean.length?`Finished: ${clean.length} strongest candidate${clean.length===1?'':'s'} found across ${scanFiles.length} photo${scanFiles.length===1?'':'s'}. Matching visible text to releases now…`:`The model completed every spine group but returned no supported records. Raw responses:\n${raw||'(empty response)'}`;scanResults.hidden=false;document.querySelector('#match-count').textContent=clean.length;renderScanRows(clean,'VIS');scanResults.scrollIntoView({behavior:'smooth',block:'start'})}
 document.querySelector('#run-vision').addEventListener('click',async()=>{
   const button=document.querySelector('#run-vision');
   const status=document.querySelector('#vision-status');
-  const prompt='This is ONE enlarged horizontal strip cropped from a vinyl shelf photo. It contains only a small group of adjacent record spines; the spine lettering should now run horizontally. Read the visible lettering carefully. Return ONLY a valid JSON array with at most 8 records: [{"artist":"...","title":"...","confidence":0.0,"evidence":"exact words visibly read"}]. Include partial records when only artist OR title is readable, using an empty string for the missing field. Never infer an album from artwork, label colour, neighbouring records, or general knowledge. Never repeat an item. If no useful lettering is visible, return [].';
+  const prompt='This is ONE enlarged horizontal, spine-aligned group cropped from a vinyl shelf photo. It contains only a few adjacent record spines and the lettering should run horizontally. Inspect the ENTIRE image from left to right and read every distinct spine with genuinely visible lettering. Return ONLY a JSON array with at most 6 objects. Every object must have the keys artist, title, confidence and evidence. Evidence must quote up to four words actually visible on that spine. Use an empty string for an unreadable artist or title. Do not copy field names or instructions into values, do not use ellipses as values, and do not infer from colour, artwork, neighbours or general knowledge. Return [] when no useful text is visible.';
+  const retryPrompt='This is an enhanced opposite-orientation retry of ONE narrow vinyl-spine group. The first reading was empty or uncertain. Inspect the entire image again, including its edges, and read every distinct spine with genuinely visible lettering. Return ONLY a JSON array with at most 6 objects using the keys artist, title, confidence and evidence. Evidence must quote up to four words visibly present. Use empty strings for unreadable fields. Never use ellipses or instruction text as values, never guess, and return [] when the image does not support a record.';
   bulkScanRunning=true;
   renderPhotoQueue();
   renderPreparedPanels();
@@ -435,21 +588,39 @@ document.querySelector('#run-vision').addEventListener('click',async()=>{
       const crop=cropData[i];
       const photoIndex=scanFiles.findIndex(entry=>entry.id===crop.fileId);
       const photoLabel=photoIndex>=0?`photo ${photoIndex+1} of ${scanFiles.length}`:crop.fileName;
-      const progress=`Reading ${photoLabel} · panel ${crop.index} (${i+1}/${cropData.length} total)`;
+      const progress=`Reading ${photoLabel} · spine group ${crop.index} (${i+1}/${cropData.length} total)`;
       status.textContent=`${progress}…\nFound ${dedupeVisionRecords(records).length} possible records so far. Keep this tab open.`;
       button.textContent=`◌ ${progress}…`;
       try{
-        const response=await fetch(`${serviceBase()}/analyze`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image:cropData[i].dataUrl,prompt}),signal:AbortSignal.timeout(240000)});
-        if(!response.ok){let detail=await response.text();try{detail=JSON.parse(detail).error||detail}catch{}throw new Error(detail||`Vision returned ${response.status}`)}
-        const result=await response.json();
-        records.push(...(result.records||[]));
+        const primaryOcr=await readRetryOcr(crop.dataUrl);
+        const result=await requestVisionPanel(crop.dataUrl,prompt);
+        let panelRecords=(result.records||[]).map(item=>({...item,ocrText:primaryOcr,groupId:`${crop.fileId}:${crop.index}`,groupCapacity:crop.spineCount||0}));
+        raw.push(`${crop.fileName} · group ${crop.index}: ${result.raw||'(empty)'}`);
+        if(visionNeedsRetry(panelRecords,result.raw)){
+          status.textContent=`${progress}…\nLow-confidence result; trying an enhanced crop and local OCR hint…`;
+          button.textContent=`◌ ${progress} · retry…`;
+          try{
+            const retryImage=await createAdaptiveRetryImage(crop);
+            const ocrHint=await readRetryOcr(retryImage);
+            const assistedPrompt=ocrHint?`${retryPrompt}\nOptional local OCR hint (may be wrong; verify it against the image): ${ocrHint}`:retryPrompt;
+            const retryResult=await requestVisionPanel(retryImage,assistedPrompt);
+            raw.push(`${crop.fileName} · group ${crop.index} retry: ${retryResult.raw||'(empty)'}`);
+            const combinedOcr=[primaryOcr,ocrHint].filter(Boolean).join(' ');const retryRecords=(retryResult.records||[]).map(item=>({...item,ocrText:combinedOcr,groupId:`${crop.fileId}:${crop.index}`,groupCapacity:crop.spineCount||0}));
+            panelRecords=dedupeVisionRecords([...panelRecords,...retryRecords]);
+          }catch(retryError){
+            const retryMessage=retryError.name==='TimeoutError'?'timed out after four minutes':retryError.message;
+            if(/model runner stopped|ran out of RAM|unexpected EOF/i.test(retryMessage))throw new Error(retryMessage);
+            failures.push(`${crop.fileName} · group ${crop.index} retry ${retryMessage}`);
+            raw.push(`${crop.fileName} · group ${crop.index} retry: ERROR — ${retryMessage}`);
+          }
+        }
+        records.push(...panelRecords);
         activeScanRecords=dedupeVisionRecords(records);activeScanNextPanel=i+1;await saveScanCheckpoint(activeScanNextPanel>=cropData.length?'complete':'running');
-        raw.push(`${crop.fileName} · panel ${crop.index}: ${result.raw||'(empty)'}`);
       }catch(panelError){
         const message=panelError.name==='TimeoutError'?'timed out after four minutes':panelError.message;
         if(/model runner stopped|ran out of RAM|unexpected EOF/i.test(message))throw new Error(message);
-        failures.push(`${crop.fileName} · panel ${crop.index} ${message}`);
-        raw.push(`${crop.fileName} · panel ${crop.index}: ERROR — ${message}`);
+        failures.push(`${crop.fileName} · group ${crop.index} ${message}`);
+        raw.push(`${crop.fileName} · group ${crop.index}: ERROR — ${message}`);
       }
     }
     renderVisionRecords(records,raw.join('\n\n'));
@@ -501,10 +672,11 @@ document.querySelector('#add-matches').addEventListener('click',()=>{
   const added=[];
   document.querySelectorAll('.match-row').forEach(row=>{
     if(!row.querySelector('.match-check:checked'))return;
-    const title=row.querySelector('[aria-label="Album title"]')?.value.trim()||'';
-    const artist=row.querySelector('[aria-label="Artist"]')?.value.trim()||'';
-    if(!title&&!artist)return;
     const release=scanReleaseMatches.get(row.dataset.scanId)?.selected;
+    const releaseNames=release?splitDiscogsTitle(release.title):null;
+    const title=releaseNames?.title||row.querySelector('[aria-label="Album title"]')?.value.trim()||'';
+    const artist=releaseNames?.artist||row.querySelector('[aria-label="Artist"]')?.value.trim()||'';
+    if(!title&&!artist)return;
     const releaseData=release?collectionDataFromRelease(release):{};
     const record=createCollectionRecord(artist,title,releaseData);
     records.push(record);added.push(record);

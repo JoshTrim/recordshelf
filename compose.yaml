@@ -22,11 +22,14 @@ services:
     environment:
       GROOVEKEEPER_VISION_HOST: 0.0.0.0
       GROOVEKEEPER_VISION_PORT: 8765
-      GROOVEKEEPER_VISION_PROVIDER: ollama
+      GROOVEKEEPER_VISION_PROVIDER: ${GROOVEKEEPER_VISION_PROVIDER:-ollama}
       GROOVEKEEPER_OLLAMA_URL: http://ollama:11434
       GROOVEKEEPER_OLLAMA_MODEL: ${GROOVEKEEPER_OLLAMA_MODEL:-qwen2.5vl:3b}
       GROOVEKEEPER_OLLAMA_CONTEXT: ${GROOVEKEEPER_OLLAMA_CONTEXT:-2048}
+      GROOVEKEEPER_OLLAMA_NUM_PREDICT: ${GROOVEKEEPER_OLLAMA_NUM_PREDICT:-320}
       GROOVEKEEPER_OLLAMA_KEEP_ALIVE: ${GROOVEKEEPER_OLLAMA_KEEP_ALIVE:-2m}
+      GROOVEKEEPER_MISTRAL_API_KEY: ${GROOVEKEEPER_MISTRAL_API_KEY:-}
+      GROOVEKEEPER_MISTRAL_OCR_MODEL: ${GROOVEKEEPER_MISTRAL_OCR_MODEL:-mistral-ocr-latest}
       GROOVEKEEPER_DATABASE: /data/groovekeeper.sqlite3
       GROOVEKEEPER_DISCOGS_TOKEN: ${GROOVEKEEPER_DISCOGS_TOKEN:-}
       GROOVEKEEPER_USER_AGENT: ${GROOVEKEEPER_USER_AGENT:-Groovekeeper/1.0 +self-hosted}
@@ -63,8 +66,10 @@ services:
     restart: "no"
     environment:
       OLLAMA_HOST: http://ollama:11434
+      GROOVEKEEPER_VISION_PROVIDER: ${GROOVEKEEPER_VISION_PROVIDER:-ollama}
+      GROOVEKEEPER_OLLAMA_MODEL: ${GROOVEKEEPER_OLLAMA_MODEL:-qwen2.5vl:3b}
     entrypoint: ["/bin/sh", "-c"]
-    command: ["ollama pull ${GROOVEKEEPER_OLLAMA_MODEL:-qwen2.5vl:3b}"]
+    command: ["case \"$${GROOVEKEEPER_VISION_PROVIDER}\" in mistral|mistral-ocr|mistral_ocr) echo 'Mistral OCR selected; skipping Ollama model download.' ;; *) ollama pull \"$${GROOVEKEEPER_OLLAMA_MODEL}\" ;; esac"]
     depends_on:
       ollama:
         condition: service_healthy
