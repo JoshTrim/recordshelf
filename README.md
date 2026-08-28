@@ -11,7 +11,7 @@ These instructions deploy RecordShelf on a Linux home server or NAS with Docker.
 ### Requirements
 
 - Docker Engine with Docker Compose v2
-- Git access to this private repository
+- Access to this repository's private releases and container packages
 - Around 5 GB free for images and the default vision model
 - 8 GB RAM recommended; more helps image recognition
 - A Discogs personal access token for pressing lookup, artwork and pricing
@@ -24,40 +24,46 @@ docker --version
 docker compose version
 ```
 
-### First-time installation
+### First-time installation from a release
 
-1. Clone the private repository and enter it:
+1. Open the latest GitHub release and download its two deployment assets into an empty directory:
 
-   ```sh
-   git clone https://github.com/YOUR_GITHUB_USERNAME/recordshelf.git
-   cd recordshelf
-   ```
+   - `docker-compose.yml`
+   - `.env`
 
-   GitHub will require an account, SSH key or personal access token that can read the private repository.
+   No repository clone or local image build is required.
 
-2. Create the local environment file:
+2. Restrict access to the environment file:
 
    ```sh
-   cp .env.example .env
    chmod 600 .env
    ```
 
 3. Edit `.env` and set at least these values:
 
    ```dotenv
-   GROOVEKEEPER_WEB_PORT=3002
-   GROOVEKEEPER_DISCOGS_TOKEN=your_discogs_personal_access_token
+   RECORDSHELF_WEB_PORT=3002
+   RECORDSHELF_DISCOGS_TOKEN=your_discogs_personal_access_token
+   RECORDSHELF_IMAGE_PREFIX=ghcr.io/your-github-username
+   RECORDSHELF_VERSION=0.1.0
    ```
 
-   Change `GROOVEKEEPER_WEB_PORT` if that host port is already occupied. Keep `.env` private; it is excluded from Docker builds and Git.
+   Change the web port if it is already occupied. Set the image prefix to the GitHub account that owns the package. Keep `.env` private.
 
-4. Build and start the stack:
+4. Authenticate Docker to GHCR using a GitHub token with `read:packages` permission:
 
    ```sh
-   docker compose up -d --build
+   echo "$GITHUB_CONTAINER_TOKEN" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
    ```
 
-5. With the default Ollama provider, the first start downloads the approximately 3.2 GB `qwen2.5vl:3b` vision model. Follow the one-time download and container startup:
+5. Pull and start the stack:
+
+   ```sh
+   docker compose pull
+   docker compose up -d
+   ```
+
+6. With the default Ollama provider, the first start downloads the approximately 3.2 GB `qwen2.5vl:3b` vision model. Follow the one-time download and container startup:
 
    ```sh
    docker compose logs -f ollama-pull
@@ -65,7 +71,7 @@ docker compose version
 
    Press `Ctrl-C` after the model download completes; this does not stop the containers.
 
-6. Check the deployment:
+7. Check the deployment:
 
    ```sh
    docker compose ps
@@ -74,13 +80,13 @@ docker compose version
 
    All long-running services should show as running or healthy. The health request should return JSON containing `"ok": true`.
 
-7. Open RecordShelf from another device on the same network:
+8. Open RecordShelf from another device on the same network:
 
    ```text
    http://SERVER_LAN_IP:PORT
    ```
 
-   Replace `SERVER_LAN_IP` with the home server's LAN address and `PORT` with `GROOVEKEEPER_WEB_PORT` from `.env`, for example `http://SERVER_LAN_IP:PORT`.
+   Replace `SERVER_LAN_IP` with the home server's LAN address and `PORT` with `RECORDSHELF_WEB_PORT` from `.env`, for example `http://SERVER_LAN_IP:PORT`.
 
 If the page is unavailable from another device, allow the selected TCP port through the server firewall. Do not expose ports `8765` or `11434`; nginx proxies API and vision requests through the single web port.
 
@@ -105,33 +111,18 @@ docker compose up -d
 
 Avoid `docker compose down -v` unless you deliberately want to remove the SQLite collection and downloaded Ollama models.
 
-### Deploying a prebuilt container release
+Versioned `web` and `api` images support `linux/amd64` and `linux/arm64`. Pin `RECORDSHELF_VERSION` to a numbered release for repeatable deployments, or use `latest` to follow the newest release.
 
-Versioned `web` and `api` images are published for `linux/amd64` and `linux/arm64` at:
+### Building from source
 
-- `ghcr.io/YOUR_GITHUB_USERNAME/recordshelf-web`
-- `ghcr.io/YOUR_GITHUB_USERNAME/recordshelf-api`
-
-Because this repository and its packages are private, first authenticate Docker using a GitHub token that can read packages:
+Developers can instead clone the repository and build the local Dockerfiles:
 
 ```sh
-echo "$GITHUB_CONTAINER_TOKEN" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
+git clone https://github.com/YOUR_GITHUB_USERNAME/recordshelf.git
+cd recordshelf
+cp .env.example .env
+docker compose up -d --build
 ```
-
-Set the release version in `.env` and start without building locally:
-
-```dotenv
-RECORDSHELF_IMAGE_PREFIX=ghcr.io/your-github-username
-RECORDSHELF_VERSION=0.1.0
-```
-
-```sh
-docker compose -f compose.yaml -f compose.release.yaml pull
-docker compose -f compose.yaml -f compose.release.yaml up -d --no-build
-docker compose -f compose.yaml -f compose.release.yaml ps
-```
-
-Use `latest` to follow the newest release automatically, or pin a numbered version for repeatable deployments. Source builds remain available with `docker compose up -d --build`.
 
 ### Shelf recognition pipeline
 
@@ -144,8 +135,8 @@ Wide photos still have a physical resolution limit. For best results, fill the f
 The linked Mistral OCR service is an API rather than a local model. To use the current `mistral-ocr-latest` provider instead of Ollama, set these values in `.env`:
 
 ```sh
-GROOVEKEEPER_VISION_PROVIDER=mistral
-GROOVEKEEPER_MISTRAL_API_KEY=your_key
+RECORDSHELF_VISION_PROVIDER=mistral
+RECORDSHELF_MISTRAL_API_KEY=your_key
 ```
 
 Shelf crops are sent to Mistral’s OCR API and returned as structured artist/title records. The Compose setup skips downloading the Ollama model when this provider is selected.
@@ -162,53 +153,57 @@ Without that override, Ollama runs on CPU. Recognition will work but can be slow
 
 ### Persistent data
 
-- `groovekeeper_data` contains the SQLite database.
-- `ollama_models` contains the local vision model.
+- `recordshelf_data` contains the SQLite database.
+- `recordshelf_models` contains the local vision model.
 
 Normal container updates do not remove either volume. Back up the database with:
 
 ```sh
-docker compose exec api python3 -c "import shutil; shutil.copy2('/data/groovekeeper.sqlite3', '/data/groovekeeper-backup.sqlite3')"
-docker cp groovekeeper-api:/data/groovekeeper-backup.sqlite3 ./groovekeeper-backup.sqlite3
+docker compose exec api python3 -c "import shutil; shutil.copy2('/data/recordshelf.sqlite3', '/data/recordshelf-backup.sqlite3')"
+docker cp recordshelf-api:/data/recordshelf-backup.sqlite3 ./recordshelf-backup.sqlite3
 ```
 
 You can also export CSV or JSON from the collection page.
 
-### Updating
+### Updating a release deployment
 
 ```sh
-git pull --ff-only
-docker compose up -d --build --remove-orphans
+docker compose pull
+docker compose up -d --remove-orphans
 docker compose ps
 ```
 
-Compose reuses both named volumes during rebuilds, so application updates do not erase the collection or redownload an unchanged Ollama model.
+Set `RECORDSHELF_VERSION` to the desired version first. Compose reuses both named volumes, so application updates do not erase the collection or redownload an unchanged Ollama model.
+
+When upgrading an older installation that used differently named volumes, set `RECORDSHELF_DATA_VOLUME` and `RECORDSHELF_MODEL_VOLUME` to the existing Docker volume names before starting. RecordShelf will migrate a lone earlier SQLite database filename inside the selected data volume automatically.
 
 ### Configuration
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `GROOVEKEEPER_WEB_PORT` | `3002` | Browser UI port |
+| `RECORDSHELF_WEB_PORT` | `3002` | Browser UI port |
 | `RECORDSHELF_IMAGE_PREFIX` | `ghcr.io/your-github-username` | Registry namespace used for prebuilt images |
 | `RECORDSHELF_VERSION` | `latest` | Tag used when pulling prebuilt GHCR images |
-| `GROOVEKEEPER_VISION_PROVIDER` | `ollama` | `ollama`, `mistral`, or `mlx` |
-| `GROOVEKEEPER_MISTRAL_API_KEY` | empty | Optional Mistral OCR API key |
-| `GROOVEKEEPER_MISTRAL_OCR_MODEL` | `mistral-ocr-latest` | Mistral OCR model alias |
-| `GROOVEKEEPER_OLLAMA_MODEL` | `qwen2.5vl:3b` | Ollama vision model |
-| `GROOVEKEEPER_OLLAMA_CONTEXT` | `2048` | Vision context size; keep this low on memory-constrained servers |
-| `GROOVEKEEPER_OLLAMA_NUM_PREDICT` | `320` | Maximum response tokens per vision panel |
-| `GROOVEKEEPER_OLLAMA_KEEP_ALIVE` | `2m` | Time the model remains loaded after a request |
-| `GROOVEKEEPER_DISCOGS_TOKEN` | empty | Discogs access token |
+| `RECORDSHELF_DATA_VOLUME` | `recordshelf_data` | Persistent SQLite volume name |
+| `RECORDSHELF_MODEL_VOLUME` | `recordshelf_models` | Persistent Ollama model volume name |
+| `RECORDSHELF_VISION_PROVIDER` | `ollama` | `ollama`, `mistral`, or `mlx` |
+| `RECORDSHELF_MISTRAL_API_KEY` | empty | Optional Mistral OCR API key |
+| `RECORDSHELF_MISTRAL_OCR_MODEL` | `mistral-ocr-latest` | Mistral OCR model alias |
+| `RECORDSHELF_OLLAMA_MODEL` | `qwen2.5vl:3b` | Ollama vision model |
+| `RECORDSHELF_OLLAMA_CONTEXT` | `2048` | Vision context size; keep this low on memory-constrained servers |
+| `RECORDSHELF_OLLAMA_NUM_PREDICT` | `320` | Maximum response tokens per vision panel |
+| `RECORDSHELF_OLLAMA_KEEP_ALIVE` | `2m` | Time the model remains loaded after a request |
+| `RECORDSHELF_DISCOGS_TOKEN` | empty | Discogs access token |
 
 ### Ollama stops with `unexpected EOF`
 
 This normally means the model runner was killed under memory pressure. The default Compose configuration limits Ollama to one model and one request, uses a 2048-token context, quantizes the context cache, and retries one failed request with a smaller allocation.
 
-After updating, rebuild the containers:
+After updating, restart the containers:
 
 ```sh
-git pull
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 docker compose logs --tail=200 ollama
 ```
 

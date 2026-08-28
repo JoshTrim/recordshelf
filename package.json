@@ -1,5 +1,5 @@
 {
-  "name": "groovekeeper-local",
+  "name": "recordshelf-local",
   "private": true,
   "scripts": {
     "start": "./start-local.sh"

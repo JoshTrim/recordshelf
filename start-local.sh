@@ -10,8 +10,9 @@ if [ -f .env ]; then
 fi
 
 web_pid=""
-if ! lsof -nP -iTCP:3002 -sTCP:LISTEN >/dev/null 2>&1; then
-  python3 -m http.server 3002 --bind 0.0.0.0 &
+recordshelf_web_port="${RECORDSHELF_WEB_PORT:-3002}"
+if ! lsof -nP -iTCP:"$recordshelf_web_port" -sTCP:LISTEN >/dev/null 2>&1; then
+  python3 -m http.server "$recordshelf_web_port" --bind 0.0.0.0 &
   web_pid=$!
 fi
 

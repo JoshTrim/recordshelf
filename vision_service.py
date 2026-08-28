@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tiny LAN-only vision service for Groovekeeper.
+"""Tiny LAN-only vision service for RecordShelf.
 
 Run with: python3 vision_service.py
 First request downloads the selected MLX model into the local Hugging Face cache.
@@ -21,29 +21,50 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 
-HOST = os.environ.get("GROOVEKEEPER_VISION_HOST", "0.0.0.0")
-PORT = int(os.environ.get("GROOVEKEEPER_VISION_PORT", "8765"))
-MODEL_ID = os.environ.get("GROOVEKEEPER_VISION_MODEL", "mlx-community/Qwen2-VL-2B-Instruct-4bit")
-VISION_PROVIDER = os.environ.get("GROOVEKEEPER_VISION_PROVIDER", "mlx").strip().lower()
-OLLAMA_URL = os.environ.get("GROOVEKEEPER_OLLAMA_URL", "http://ollama:11434").rstrip("/")
-OLLAMA_MODEL = os.environ.get("GROOVEKEEPER_OLLAMA_MODEL", "qwen2.5vl:3b")
-OLLAMA_CONTEXT = int(os.environ.get("GROOVEKEEPER_OLLAMA_CONTEXT", "2048"))
-OLLAMA_NUM_PREDICT = int(os.environ.get("GROOVEKEEPER_OLLAMA_NUM_PREDICT", "320"))
-OLLAMA_KEEP_ALIVE = os.environ.get("GROOVEKEEPER_OLLAMA_KEEP_ALIVE", "2m")
-MISTRAL_API_KEY = (os.environ.get("GROOVEKEEPER_MISTRAL_API_KEY") or os.environ.get("MISTRAL_API_KEY", "")).strip()
-MISTRAL_OCR_MODEL = os.environ.get("GROOVEKEEPER_MISTRAL_OCR_MODEL", "mistral-ocr-latest")
-MISTRAL_OCR_URL = os.environ.get("GROOVEKEEPER_MISTRAL_OCR_URL", "https://api.mistral.ai/v1/ocr").strip()
+HOST = os.environ.get("RECORDSHELF_VISION_HOST", "0.0.0.0")
+PORT = int(os.environ.get("RECORDSHELF_VISION_PORT", "8765"))
+MODEL_ID = os.environ.get("RECORDSHELF_VISION_MODEL", "mlx-community/Qwen2-VL-2B-Instruct-4bit")
+VISION_PROVIDER = os.environ.get("RECORDSHELF_VISION_PROVIDER", "mlx").strip().lower()
+OLLAMA_URL = os.environ.get("RECORDSHELF_OLLAMA_URL", "http://ollama:11434").rstrip("/")
+OLLAMA_MODEL = os.environ.get("RECORDSHELF_OLLAMA_MODEL", "qwen2.5vl:3b")
+OLLAMA_CONTEXT = int(os.environ.get("RECORDSHELF_OLLAMA_CONTEXT", "2048"))
+OLLAMA_NUM_PREDICT = int(os.environ.get("RECORDSHELF_OLLAMA_NUM_PREDICT", "320"))
+OLLAMA_KEEP_ALIVE = os.environ.get("RECORDSHELF_OLLAMA_KEEP_ALIVE", "2m")
+MISTRAL_API_KEY = (os.environ.get("RECORDSHELF_MISTRAL_API_KEY") or os.environ.get("MISTRAL_API_KEY", "")).strip()
+MISTRAL_OCR_MODEL = os.environ.get("RECORDSHELF_MISTRAL_OCR_MODEL", "mistral-ocr-latest")
+MISTRAL_OCR_URL = os.environ.get("RECORDSHELF_MISTRAL_OCR_URL", "https://api.mistral.ai/v1/ocr").strip()
 MODEL = None
 PROCESSOR = None
 CONFIG = None
 MODEL_LOCK = threading.Lock()
-DISCOGS_TOKEN = os.environ.get("GROOVEKEEPER_DISCOGS_TOKEN", "").strip()
-DISCOGS_USER_AGENT = os.environ.get("GROOVEKEEPER_USER_AGENT", "Groovekeeper/0.1 +local-vinyl-catalogue")
-DATABASE_PATH = os.environ.get("GROOVEKEEPER_DATABASE", os.path.join(os.path.dirname(__file__), "groovekeeper.sqlite3"))
+DISCOGS_TOKEN = os.environ.get("RECORDSHELF_DISCOGS_TOKEN", "").strip()
+DISCOGS_USER_AGENT = os.environ.get("RECORDSHELF_USER_AGENT", "RecordShelf/0.1 +local-vinyl-catalogue")
+DATABASE_PATH = os.environ.get("RECORDSHELF_DATABASE", os.path.join(os.path.dirname(__file__), "recordshelf.sqlite3"))
 
 PROMPT = """Look carefully at this photograph of a vinyl record shelf. Read every record spine whose text is genuinely visible. Return ONLY valid JSON in this exact shape:
 [{"artist":"...","title":"...","confidence":0.0,"evidence":"short visible text"}]
 Use an empty string for unknown artist or title. Do not guess or invent records. Keep confidence between 0 and 1. Include only records with at least some visible title or artist text."""
+
+
+def migrate_database_if_needed():
+    if os.path.exists(DATABASE_PATH):
+        return
+    database_directory = os.path.dirname(DATABASE_PATH) or "."
+    os.makedirs(database_directory, exist_ok=True)
+    candidates = [
+        os.path.join(database_directory, filename)
+        for filename in os.listdir(database_directory)
+        if filename.endswith(".sqlite3")
+        and not filename.endswith("-backup.sqlite3")
+        and os.path.join(database_directory, filename) != DATABASE_PATH
+    ]
+    if len(candidates) != 1:
+        return
+    previous_path = candidates[0]
+    os.replace(previous_path, DATABASE_PATH)
+    for suffix in ("-wal", "-shm"):
+        if os.path.exists(previous_path + suffix):
+            os.replace(previous_path + suffix, DATABASE_PATH + suffix)
 
 
 def database_connection():
@@ -415,7 +436,7 @@ MISTRAL_RECORD_SCHEMA = {
 
 def analyze_with_mistral_ocr(data_url, prompt=PROMPT):
     if not MISTRAL_API_KEY:
-        raise RuntimeError("Mistral OCR is not configured. Set GROOVEKEEPER_MISTRAL_API_KEY.")
+        raise RuntimeError("Mistral OCR is not configured. Set RECORDSHELF_MISTRAL_API_KEY.")
     annotation_prompt = (prompt or PROMPT).strip() + (
         "\nThe API schema controls the output format. Populate its records array. "
         "Use only lettering genuinely visible in the image; use empty strings for unknown fields "
@@ -675,8 +696,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    migrate_database_if_needed()
     initialize_database()
-    print(f"Groovekeeper vision service on http://{HOST}:{PORT}")
+    print(f"RecordShelf vision service on http://{HOST}:{PORT}")
     print(f"Vision provider: {VISION_PROVIDER}")
     print(f"Model: {OLLAMA_MODEL if VISION_PROVIDER == 'ollama' else MODEL_ID}")
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()

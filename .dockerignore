@@ -4,7 +4,7 @@
 .venv-vision
 __pycache__
 *.pyc
-groovekeeper.sqlite3*
+*.sqlite3*
 fixtures
 README.md
 start-local.sh

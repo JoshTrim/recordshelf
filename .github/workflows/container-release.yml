@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 concurrency:
@@ -73,3 +73,31 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.component }}
           provenance: mode=max
           sbom: true
+
+  release:
+    name: Publish deployment bundle
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Prepare standalone deployment files
+        shell: bash
+        run: |
+          mkdir release
+          cp docker-compose.release.yml release/docker-compose.yml
+          cp .env.example release/.env
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          release/docker-compose.yml
+          release/.env
+          --title "RecordShelf $GITHUB_REF_NAME"
+          --generate-notes
+          --verify-tag

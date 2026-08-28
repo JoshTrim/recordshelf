@@ -1,6 +1,0 @@
-services:
-  web:
-    image: ${RECORDSHELF_IMAGE_PREFIX:?Set RECORDSHELF_IMAGE_PREFIX in .env}/recordshelf-web:${RECORDSHELF_VERSION:-latest}
-
-  api:
-    image: ${RECORDSHELF_IMAGE_PREFIX:?Set RECORDSHELF_IMAGE_PREFIX in .env}/recordshelf-api:${RECORDSHELF_VERSION:-latest}

@@ -1,7 +1,8 @@
-const STORAGE_KEY='groovekeeper-records-v1';
+const STORAGE_KEY='recordshelf-records-v1';
+const previousStorageKey=Object.keys(localStorage).find(key=>key!==STORAGE_KEY&&key.endsWith('-records-v1'));
 function loadRecords(){
   try{
-    const saved=JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]');
+    const saved=JSON.parse(localStorage.getItem(STORAGE_KEY)||(previousStorageKey?localStorage.getItem(previousStorageKey):null)||'[]');
     if(!Array.isArray(saved))return [];
     const sixHours=6*60*60*1000;
     return saved.map(record=>{
@@ -146,7 +147,7 @@ document.querySelector('#duplicate-groups').addEventListener('click',event=>{
 let artworkQueue=Promise.resolve();
 function jsonpAlbumSearch(artist,title){
   return new Promise((resolve,reject)=>{
-    const callback=`groovekeeperArtwork_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const callback=`recordshelfArtwork_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const script=document.createElement('script');
     const timeout=setTimeout(()=>finish(new Error('Artwork search timed out')),12000);
     function finish(error,value){clearTimeout(timeout);delete window[callback];script.remove();error?reject(error):resolve(value)}
@@ -228,8 +229,8 @@ document.querySelector('#delete-record').addEventListener('click',()=>{const ind
 
 function downloadCollection(filename,type,contents){const url=URL.createObjectURL(new Blob([contents],{type}));const link=document.createElement('a');link.href=url;link.download=filename;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
 function csvCell(value){return `"${String(value??'').replace(/"/g,'""')}"`}
-document.querySelector('#export-json').addEventListener('click',()=>downloadCollection(`groovekeeper-${new Date().toISOString().slice(0,10)}.json`,'application/json',JSON.stringify({exportedAt:new Date().toISOString(),records},null,2)));
-document.querySelector('#export-csv').addEventListener('click',()=>{const columns=['Artist','Title','Year','Condition','Label','Catalog Number','Discogs Release ID','Estimated Value','Currency','Notes'];const rows=records.map(record=>[record.artist,record.title,record.year,record.condition,record.label,record.catno,record.discogsReleaseId,record.value,record.priceCurrency,record.meta].map(csvCell).join(','));downloadCollection(`groovekeeper-${new Date().toISOString().slice(0,10)}.csv`,'text/csv;charset=utf-8',[columns.map(csvCell).join(','),...rows].join('\n'))});
+document.querySelector('#export-json').addEventListener('click',()=>downloadCollection(`recordshelf-${new Date().toISOString().slice(0,10)}.json`,'application/json',JSON.stringify({exportedAt:new Date().toISOString(),records},null,2)));
+document.querySelector('#export-csv').addEventListener('click',()=>{const columns=['Artist','Title','Year','Condition','Label','Catalog Number','Discogs Release ID','Estimated Value','Currency','Notes'];const rows=records.map(record=>[record.artist,record.title,record.year,record.condition,record.label,record.catno,record.discogsReleaseId,record.value,record.priceCurrency,record.meta].map(csvCell).join(','));downloadCollection(`recordshelf-${new Date().toISOString().slice(0,10)}.csv`,'text/csv;charset=utf-8',[columns.map(csvCell).join(','),...rows].join('\n'))});
 const discogsImport=document.querySelector('#discogs-import');document.querySelector('#import-discogs').addEventListener('click',()=>discogsImport.click());discogsImport.addEventListener('change',async event=>{const file=event.target.files[0];event.target.value='';if(!file)return;try{const response=await fetch(`${serviceBase()}/collection/import-discogs`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({csv:await file.text()}),signal:AbortSignal.timeout(20000)});const result=await response.json();if(!response.ok)throw new Error(result.error||'Import failed');records.push(...(result.records||[]));saveRecords();render();toast.innerHTML=`Imported ${result.count} Discogs record${result.count===1?'':'s'} <span>✓</span>`;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),2800)}catch(error){toast.textContent=`Import failed: ${error.message}`;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),3500)}});
 const buyCheckSearch=document.querySelector('#buy-check-search');const buyCheckResult=document.querySelector('#buy-check-result');buyCheckSearch.addEventListener('input',()=>{const query=buyCheckSearch.value.toLowerCase().trim();if(query.length<2){buyCheckResult.textContent='Type a record name to check your collection.';buyCheckResult.className='';return}const matches=records.filter(record=>`${record.artist} ${record.title} ${record.catno||''}`.toLowerCase().includes(query)).slice(0,4);buyCheckResult.className=matches.length?'owned':'clear';buyCheckResult.innerHTML=matches.length?`<strong>You own ${matches.length} matching ${matches.length===1?'record':'records'}.</strong>${matches.map(record=>`<span>${escapeHtml(record.artist)} — ${escapeHtml(record.title)}${record.catno?` · ${escapeHtml(record.catno)}`:''}</span>`).join('')}`:'<strong>No match in your collection.</strong><span>Check the spelling or identify it by cover/barcode.</span>'});
 function priceForCondition(prices,condition){

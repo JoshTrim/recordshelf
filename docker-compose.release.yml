@@ -2,9 +2,7 @@ name: recordshelf
 
 services:
   web:
-    build:
-      context: .
-      dockerfile: Dockerfile.web
+    image: ${RECORDSHELF_IMAGE_PREFIX:?Set RECORDSHELF_IMAGE_PREFIX in .env}/recordshelf-web:${RECORDSHELF_VERSION:-latest}
     container_name: recordshelf-web
     restart: unless-stopped
     ports:
@@ -14,9 +12,7 @@ services:
         condition: service_healthy
 
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile.api
+    image: ${RECORDSHELF_IMAGE_PREFIX:?Set RECORDSHELF_IMAGE_PREFIX in .env}/recordshelf-api:${RECORDSHELF_VERSION:-latest}
     container_name: recordshelf-api
     restart: unless-stopped
     environment:
