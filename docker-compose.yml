@@ -2,7 +2,7 @@ name: recordshelf
 
 services:
   web:
-    image: ghcr.io/recordshelf-owner/recordshelf-web:latest
+    image: ghcr.io/joshtrim/recordshelf-web:latest
     container_name: recordshelf-web
     restart: unless-stopped
     ports:
@@ -12,7 +12,7 @@ services:
         condition: service_healthy
 
   api:
-    image: ghcr.io/recordshelf-owner/recordshelf-api:latest
+    image: ghcr.io/joshtrim/recordshelf-api:latest
     container_name: recordshelf-api
     restart: unless-stopped
     environment:

@@ -109,7 +109,7 @@ docker compose up -d
 
 Avoid `docker compose down -v` unless you deliberately want to remove the SQLite collection and downloaded Ollama models.
 
-The bundled Compose file pulls the latest `web` and `api` images for `linux/amd64` or `linux/arm64`. Their GHCR locations are generated as part of each release and do not need to be configured in `.env`.
+The default and bundled Compose files contain the GHCR locations and pull the latest `web` and `api` images for `linux/amd64` or `linux/arm64`. Image locations and versions do not need to be configured in `.env`.
 
 ### Building from source
 
@@ -119,7 +119,7 @@ Developers can instead clone the repository and build the local Dockerfiles:
 git clone https://github.com/YOUR_GITHUB_USERNAME/recordshelf.git
 cd recordshelf
 cp .env.example .env
-docker compose up -d --build
+docker compose -f compose.build.yaml up -d --build
 ```
 
 ### Shelf recognition pipeline
@@ -144,7 +144,7 @@ Shelf crops are sent to Mistral’s OCR API and returned as structured artist/ti
 With the NVIDIA Container Toolkit installed:
 
 ```sh
-docker compose -f compose.yaml -f compose.nvidia.yaml up -d --build
+docker compose -f docker-compose.yml -f compose.nvidia.yaml up -d
 ```
 
 Without that override, Ollama runs on CPU. Recognition will work but can be slow.
