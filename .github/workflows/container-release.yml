@@ -87,7 +87,8 @@ jobs:
         shell: bash
         run: |
           mkdir release
-          cp docker-compose.release.yml release/docker-compose.yml
+          registry_owner="${GITHUB_REPOSITORY_OWNER,,}"
+          sed "s#ghcr.io/recordshelf-owner#ghcr.io/$registry_owner#g" docker-compose.release.yml > release/docker-compose.yml
           cp .env.example release/.env
           cd release
           zip recordshelf-deployment.zip docker-compose.yml .env

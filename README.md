@@ -44,11 +44,9 @@ docker compose version
    ```dotenv
    RECORDSHELF_WEB_PORT=3002
    RECORDSHELF_DISCOGS_TOKEN=your_discogs_personal_access_token
-   RECORDSHELF_IMAGE_PREFIX=ghcr.io/your-github-username
-   RECORDSHELF_VERSION=0.1.0
    ```
 
-   Change the web port if it is already occupied. Set the image prefix to the GitHub account that owns the package. Keep `.env` private.
+   Change the web port if it is already occupied. Keep `.env` private.
 
 4. Authenticate Docker to GHCR using a GitHub token with `read:packages` permission:
 
@@ -111,7 +109,7 @@ docker compose up -d
 
 Avoid `docker compose down -v` unless you deliberately want to remove the SQLite collection and downloaded Ollama models.
 
-Versioned `web` and `api` images support `linux/amd64` and `linux/arm64`. Pin `RECORDSHELF_VERSION` to a numbered release for repeatable deployments, or use `latest` to follow the newest release.
+The bundled Compose file pulls the latest `web` and `api` images for `linux/amd64` or `linux/arm64`. Their GHCR locations are generated as part of each release and do not need to be configured in `.env`.
 
 ### Building from source
 
@@ -173,7 +171,7 @@ docker compose up -d --remove-orphans
 docker compose ps
 ```
 
-Set `RECORDSHELF_VERSION` to the desired version first. Compose reuses both named volumes, so application updates do not erase the collection or redownload an unchanged Ollama model.
+Compose reuses both named volumes, so application updates do not erase the collection or redownload an unchanged Ollama model.
 
 When upgrading an older installation that used differently named volumes, set `RECORDSHELF_DATA_VOLUME` and `RECORDSHELF_MODEL_VOLUME` to the existing Docker volume names before starting. RecordShelf will migrate a lone earlier SQLite database filename inside the selected data volume automatically.
 
@@ -182,8 +180,6 @@ When upgrading an older installation that used differently named volumes, set `R
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `RECORDSHELF_WEB_PORT` | `3002` | Browser UI port |
-| `RECORDSHELF_IMAGE_PREFIX` | `ghcr.io/your-github-username` | Registry namespace used for prebuilt images |
-| `RECORDSHELF_VERSION` | `latest` | Tag used when pulling prebuilt GHCR images |
 | `RECORDSHELF_DATA_VOLUME` | `recordshelf_data` | Persistent SQLite volume name |
 | `RECORDSHELF_MODEL_VOLUME` | `recordshelf_models` | Persistent Ollama model volume name |
 | `RECORDSHELF_VISION_PROVIDER` | `ollama` | `ollama`, `mistral`, or `mlx` |
